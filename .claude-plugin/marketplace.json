@@ -1,0 +1,14 @@
+{
+  "name": "mtgi-skills",
+  "description": "Internal Claude Cowork plugin marketplace for MTGI workflows — RFQ normalization, sourcing, and other trading-floor data tools.",
+  "owner": {
+    "name": "Jonathan Glass / DGTL for MTGI"
+  },
+  "plugins": [
+    {
+      "name": "rfq-normalizer",
+      "source": "./rfq-normalizer",
+      "description": "Normalize vendor RFQ spreadsheets into MTGI's canonical historical-import template. Enriches missing fields via BrokerBin and Brave web search; surfaces vendor-internal SKU swaps for operator confirmation."
+    }
+  ]
+}

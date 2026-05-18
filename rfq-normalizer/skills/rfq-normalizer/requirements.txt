@@ -1,0 +1,8 @@
+# Runtime dependencies for the rfq-normalizer skill.
+#
+# Install with:  python -m pip install --user -r requirements.txt
+# The /rfq-setup slash command does this automatically on first run.
+
+# Cross-platform credential store (macOS Keychain / Windows Credential
+# Manager / Linux Secret Service). Used by scripts/credentials.py.
+keyring>=24.0
