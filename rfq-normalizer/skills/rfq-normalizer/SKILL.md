@@ -50,6 +50,19 @@ Pipe the parse output into `scripts/analyze_columns.py`. This returns:
 
 **Surface the warnings to the operator** before proceeding. Especially for blank-column warnings — vendors often forget to fill required data.
 
+### 1c. Settings form
+
+After analyze surfaces its warnings, ask the operator a **single** settings card (one elicitation, not four separate prompts) covering:
+
+| Setting | Default | Where the default comes from |
+|---|---|---|
+| Default Condition for the file | `used_good` | Detected from a `Grade` column; ask explicitly if no grade is present. |
+| Outcome Date source | `filename` if a date is parseable from the input filename, else `ask`. | Parse `YYYY-MM-DD` or `M-D-YYYY` patterns from the input filename. |
+| Consolidation policy | `historical` if `analyze_columns` returned `suggested_rfq_mode='historical'`, else `live`. | step 1b output. |
+| Enrichment scope | `full` | `free-only` (regex + cache only), `top-N` (cap API calls), or `full` (run all configured tiers). |
+
+Present all four with sensible defaults pre-filled. After this single interaction, only ambiguous-merge prompts (step 3) and confirmations (vendor-SKU swaps in step 5) should require operator input.
+
 ### 2. Map vendor columns to MTGI fields
 
 Read `reference/template-schema.md` for the canonical output columns. For each MTGI field, find the best matching vendor column using:
