@@ -665,6 +665,11 @@ def main() -> int:
         action="store_true",
         help="Bypass the persistent MPN cache (forces fresh API calls)",
     )
+    ap.add_argument(
+        "--results-jsonl",
+        default=None,
+        help="Stream one result per line to this JSONL file (resumable). When set, suppresses the aggregated stdout JSON list.",
+    )
     args = ap.parse_args()
 
     default_need = [f.strip() for f in args.need.split(",") if f.strip()]
@@ -684,6 +689,37 @@ def main() -> int:
 
     # Batch mode: keep a single process so rate limiters in each tier client persist.
     items = _load_batch(args.batch, default_need)
+
+    if args.results_jsonl:
+        out_path = args.results_jsonl
+        done_mpns = _read_completed_mpns(out_path)
+        items = [it for it in items if it["mpn"] not in done_mpns]
+        cache_hits = 0
+        results_count = len(done_mpns)
+        with open(out_path, "a") as out_f:
+            for item in items:
+                r = enrich(
+                    item["mpn"],
+                    item.get("need", default_need),
+                    current_values=item.get("current"),
+                    use_cache=use_cache,
+                    vendor_manufacturer=item.get("vendor_manufacturer"),
+                )
+                if r.get("cache_status") in ("hit", "skipped", "miss_cached"):
+                    cache_hits += 1
+                r["mpn"] = item["mpn"]
+                out_f.write(json.dumps(r, default=str) + "\n")
+                out_f.flush()
+                results_count += 1
+        json.dump(
+            {"count": results_count, "cache_hits": cache_hits,
+             "api_calls_saved": cache_hits, "output": out_path,
+             "resumed_skipped": len(done_mpns)},
+            sys.stdout, default=str, indent=2,
+        )
+        return 0
+
+    # Legacy single-blob output (when --results-jsonl is not set)
     results = []
     cache_hits = 0
     for item in items:
@@ -709,6 +745,31 @@ def main() -> int:
         indent=2,
     )
     return 0
+
+
+def _read_completed_mpns(path: str) -> set[str]:
+    """Return MPNs already present in a JSONL results file.
+
+    Reads each line as JSON and pulls the "mpn" field. Malformed lines are
+    skipped silently — they'll be overwritten when their MPN is re-enriched.
+    """
+    try:
+        with open(path) as f:
+            done: set[str] = set()
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    obj = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                m = obj.get("mpn")
+                if m:
+                    done.add(m)
+            return done
+    except FileNotFoundError:
+        return set()
 
 
 def _load_batch(path: str, default_need: list[str]) -> list[dict[str, Any]]:
