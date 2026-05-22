@@ -47,8 +47,8 @@ DRIVE_TYPE_PATTERNS = [
 ]
 
 FORM_FACTOR_PATTERNS = [
-    (re.compile(r"\b2\.5\s*(?:\"|inch|in)\b|\bSFF\b", re.I), "2.5in"),
-    (re.compile(r"\b3\.5\s*(?:\"|inch|in)\b|\bLFF\b", re.I), "3.5in"),
+    (re.compile(r"\b2\.5\s*(?:\"(?=\s|$|[^0-9])|inch\b|in\b)|\bSFF\b", re.I), "2.5in"),
+    (re.compile(r"\b3\.5\s*(?:\"(?=\s|$|[^0-9])|inch\b|in\b)|\bLFF\b", re.I), "3.5in"),
     (re.compile(r"\bM\.2\s*22(?:80|30|110)\b|\b22(?:80|30|110)\b", re.I), "M.2 {0}"),
     (re.compile(r"\bLow\s*Profile\b|\bLP\b|\bHalf-Height\b", re.I), "LP PCIe"),
     (re.compile(r"\bFull\s*Height\b|\bFH\b(?![A-Z])", re.I), "FH PCIe"),
@@ -136,6 +136,19 @@ def split(description: str) -> dict:
     }
     result["provenance"] = provenance
     return result
+
+
+def split_row(row: dict, text_columns: list[str]) -> dict:
+    """Run spec extraction across multiple text columns of a single row.
+
+    Vendors hide spec hints in Size, Notes, and Description columns. Running
+    the regex over a concatenated text blob catches all of them in one pass
+    while preserving the existing single-column `split()` behavior used in
+    BrokerBin/Brave consensus scoring.
+    """
+    parts = [str(row[c]) for c in text_columns if c in row and row[c]]
+    blob = " | ".join(parts)
+    return split(blob)
 
 
 def main() -> int:

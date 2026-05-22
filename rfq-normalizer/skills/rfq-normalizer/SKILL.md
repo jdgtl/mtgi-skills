@@ -73,11 +73,7 @@ For every ambiguous pair, ask the user: "These look like the same part — shoul
 
 ### 4. Split descriptions into spec columns
 
-Run `scripts/split_description.py` on each row's description. This uses regex patterns from `reference/description-patterns.md` to extract:
-- `size` (e.g., "1.6TB", "32GB", "480GB")
-- `interface` (e.g., "SATA", "SAS", "NVMe", "PCIe")
-- `drive_type` (e.g., "SSD", "HDD", "M.2", "U.2")
-- `form_factor` (e.g., "2.5in", "3.5in", "M.2 2280")
+Run `scripts/split_description.py` over each row, mining **all text columns** (the vendor's `Description`, `Size`, `Notes`, etc.), not just the primary description. Vendors frequently hide spec hints in the Size column (e.g., "1.2 TB 10K SAS", "7.68TB SSD NVMe"). Use `split_row(row, text_columns=[...])` from the script's API; pass the list of text columns the column-mapping step identified.
 
 Each extracted value gets a `source: 'regex'` provenance entry. If the regex can't extract a field with high confidence, leave it blank and flag for enrichment.
 
