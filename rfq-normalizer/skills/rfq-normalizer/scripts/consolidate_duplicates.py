@@ -1,23 +1,33 @@
 #!/usr/bin/env python3
-"""Consolidate rows with identical (exact-match) MPN + condition.
+"""Consolidate rows with identical keys.
 
-Two modes:
+Key composition depends on `rfq_mode`:
+  - `live`        — group by (MPN, condition).        Sourcing lists.
+  - `historical`  — group by (MPN, condition, bid, win, outcome).
+                    Preserves distinct bid events; identical re-bids merge.
+
+Two quantity modes:
   - "sum"   (default) — each row already has a Quantity column; sum the values
   - "count" — each row is one physical item (row-per-item layout); count rows
 
-Use `scripts/analyze_columns.py` to detect which mode applies, then pass
-`--mode` here. When mode='count', `qty_col` is ignored and the output gains
-a synthetic "__count__" key with the total rows per MPN.
+Use `scripts/analyze_columns.py` to detect which modes apply, then pass
+`--mode` and `--rfq_mode` here.
 
 Hard rule: MPN strings are compared with EXACT equality. Whitespace and case
 differences are NOT normalized away — those are surfaced as ambiguous_pairs
-for the user to confirm or split.
+for the user to confirm or split. Quantity conservation is asserted (sum in
+== sum out); the script raises AssertionError if it ever drifts.
 
 Input  (stdin or --input):  {"rows": [...], "mpn_col": "MPN",
                               "qty_col": "Quantity",  # ignored when mode='count'
                               "condition_col": "Condition",
-                              "mode": "sum" | "count"}
-Output (stdout):            {"consolidated": [...], "ambiguous_pairs": [...]}
+                              "mode": "sum" | "count",
+                              "rfq_mode": "live" | "historical",
+                              "bid_col": "Bid Price",     # required when rfq_mode='historical'
+                              "win_col": "Winning Bid",
+                              "outcome_col": "Outcome"}
+Output (stdout):            {"consolidated": [...], "ambiguous_pairs": [...],
+                              "qty_in": int, "qty_out": int, ...}
 """
 from __future__ import annotations
 import argparse

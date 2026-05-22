@@ -24,6 +24,14 @@ Follow these steps in order. Update the user after each step with a one-line sta
 
 ### 0. Pre-flight: credentials check
 
+**First, export the workspace path explicitly.** Autodetection covers most Cowork layouts, but exporting `RFQ_WORKSPACE_DIR` removes any ambiguity. If you can see the path of the current workspace folder (e.g. via the shell environment or the user's prompt), export it before any script call:
+
+```bash
+export RFQ_WORKSPACE_DIR=<absolute path to the persistent workspace folder>
+```
+
+This is the authoritative location for the chmod-600 credentials file and the enrichment cache. Skip this step if `RFQ_WORKSPACE_DIR` is already set.
+
 Before parsing anything, run `python scripts/check_setup.py`. If BrokerBin credentials are missing (exit code 1), stop and tell the user:
 
 > The rfq-normalizer skill isn't set up yet. Run `/rfq-setup` to configure BrokerBin credentials, then re-run this skill.
@@ -71,6 +79,21 @@ Read `reference/template-schema.md` for the canonical output columns. For each M
 3. If unmatched, ask the user
 
 Show the user a mapping table and confirm before proceeding.
+
+### 2b. Strip brand prefixes from MPNs
+
+Before consolidation, normalize each row's MPN. Vendors sometimes prepend the manufacturer to the MPN ("INTEL SSDSC2BB012T6") which breaks downstream scoring and lookups. Use `mpn_patterns.strip_brand_prefix(mpn)`:
+
+```python
+from mpn_patterns import strip_brand_prefix
+cleaned, brand = strip_brand_prefix(row["MPN"])
+if brand is not None:
+    # Preserve the original vendor string in Description for audit
+    row["Description"] = f"{row.get('Description', '')} (vendor MPN: {row['MPN']})".strip()
+    row["MPN"] = cleaned
+```
+
+Only strips an allowlisted set of brand names (INTEL, TOSHIBA, HGST, WDC, SAMSUNG, MICRON, KIOXIA, SANDISK, SEAGATE). Unknown prefixes are passed through unchanged. The `brand` value should also be passed to `enrich_mpn.py --vendor-mfg` so BrokerBin consensus can corroborate.
 
 ### 3. Consolidate duplicate rows
 
