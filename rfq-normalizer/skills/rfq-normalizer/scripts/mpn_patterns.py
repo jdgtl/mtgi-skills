@@ -38,8 +38,16 @@ PATTERNS: list[tuple[re.Pattern, str, str]] = [
     (re.compile(r"^DT[0-9].*", re.I),           "Toshiba",          "Toshiba desktop"),
     # ── Storage: SSDs ───────────────────────────────────────────────────────
     (re.compile(r"^MZ[0-9A-Z].*", re.I),        "Samsung",          "Samsung enterprise SSD (PM/SM series)"),
-    (re.compile(r"^SSDPED[A-Z].*", re.I),       "Intel",            "Intel/Solidigm DC SSD"),
-    (re.compile(r"^SSDS[A-Z][0-9].*", re.I),    "Intel",            "Intel client/server SSD"),
+    (re.compile(r"^SSDPE[A-Z].*", re.I),        "Intel",            "Intel/Solidigm DC SSD (SSDPE series)"),
+    (re.compile(r"^SSDS[A-Z][0-9].*", re.I),    "Intel",            "Intel client/server SSD (SSDSC/SSDSA)"),
+    (re.compile(r"^MTFDD[A-Z].*", re.I),        "Micron",           "Micron client/enterprise SSD"),
+    (re.compile(r"^MTFDH[A-Z].*", re.I),        "Micron",           "Micron mainstream SSD"),
+    (re.compile(r"^THNSF[0-9A-Z].*", re.I),     "Toshiba",          "Toshiba/Kioxia client SSD"),
+    (re.compile(r"^KPM[0-9A-Z].*", re.I),       "Kioxia",           "Kioxia datacenter SAS SSD (KPM5/KPM6)"),
+    (re.compile(r"^KXG[0-9A-Z].*", re.I),       "Kioxia",           "Kioxia datacenter NVMe SSD"),
+    (re.compile(r"^SDFA[A-Z]?[0-9-].*|^SDLF[A-Z]?[0-9-].*", re.I),
+                                                "SanDisk",          "SanDisk/WD enterprise SSD"),
+    (re.compile(r"^0F[0-9]{4,}.*", re.I),       "HGST",             "HGST OEM part numbers (0F22811 etc.)"),
     # ── Networking ──────────────────────────────────────────────────────────
     (re.compile(r"^X710-|^X550-|^X520-|^X540-", re.I), "Intel",     "Intel Ethernet adapters"),
     (re.compile(r"^N[0-9]K-|^WS-|^CSCO-|^UCS-|^PWR-|^SFP-|^GLC-|^CAB-", re.I),
@@ -136,6 +144,31 @@ def is_likely_vendor_sku(score: MpnPatternScore, brokerbin_found_listings: bool)
     if brokerbin_found_listings:
         return False
     return score.score < 0.85
+
+
+# Brand-prefix stripping — vendors sometimes prepend the manufacturer name to
+# the MPN ("INTEL SSDSC2BB012T6"). When that happens, the part after the
+# prefix should be the real MPN. We only strip prefixes we have high
+# confidence in.
+_BRAND_PREFIX_RE = re.compile(
+    r"^(INTEL|TOSHIBA|HGST|WDC|SAMSUNG|MICRON|KIOXIA|SANDISK|SEAGATE)\s+([A-Z0-9][A-Z0-9\-]{3,})$",
+    re.I,
+)
+
+
+def strip_brand_prefix(mpn: str) -> tuple[str, str]:
+    """Strip a well-known brand prefix from an MPN.
+
+    Returns (cleaned_mpn, original_string). When no known prefix is present,
+    cleaned == original. The caller should preserve `original` somewhere
+    (description column, provenance) so the swap is auditable.
+    """
+    if not isinstance(mpn, str):
+        return mpn, mpn
+    m = _BRAND_PREFIX_RE.match(mpn.strip())
+    if not m:
+        return mpn, mpn
+    return m.group(2), mpn
 
 
 if __name__ == "__main__":
