@@ -676,6 +676,12 @@ def main() -> int:
         default=1,
         help="Process N MPNs concurrently via a thread pool (safe up to ~10 per session vs Brave). Default 1.",
     )
+    ap.add_argument(
+        "--budget-seconds",
+        type=float,
+        default=None,
+        help="Soft wall-time budget. When exceeded, stop submitting work and exit cleanly with whatever has streamed.",
+    )
     args = ap.parse_args()
 
     default_need = [f.strip() for f in args.need.split(",") if f.strip()]
@@ -718,10 +724,20 @@ def main() -> int:
             r["mpn"] = item["mpn"]
             return r
 
+        import time as _time
+        deadline = (_time.monotonic() + args.budget_seconds) if args.budget_seconds else None
+
         with open(out_path, "a") as out_f, \
              ThreadPoolExecutor(max_workers=max(1, args.parallel)) as pool:
-            futures = [pool.submit(_process, it) for it in items]
+            futures = []
+            for it in items:
+                if deadline is not None and _time.monotonic() >= deadline:
+                    break
+                futures.append(pool.submit(_process, it))
             for fut in as_completed(futures):
+                if deadline is not None and _time.monotonic() >= deadline:
+                    # Stop draining — let in-flight tasks finish naturally on pool exit
+                    break
                 r = fut.result()
                 if r.get("cache_status") in ("hit", "skipped", "miss_cached"):
                     cache_hits += 1

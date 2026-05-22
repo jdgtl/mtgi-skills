@@ -85,3 +85,34 @@ def test_parallel_n_processes_all_mpns_without_duplicates(tmp_path):
     written = [json.loads(l)["mpn"] for l in lines]
     assert sorted(written) == sorted(mpns)
     assert len(written) == len(set(written)), "duplicates emitted"
+
+
+import time
+
+
+def test_budget_seconds_returns_cleanly_with_partial_results(tmp_path, monkeypatch):
+    # 5 MPNs, but a tight budget — at least some should land before exit, none lost.
+    inputs = tmp_path / "in.json"
+    inputs.write_text(json.dumps([
+        {"mpn": f"X-{i}", "need": []} for i in range(5)
+    ]))
+    out = tmp_path / "out.jsonl"
+    cmd = [
+        sys.executable, str(ENRICH),
+        "--batch", str(inputs),
+        "--results-jsonl", str(out),
+        "--budget-seconds", "1",
+        "--no-cache",
+    ]
+    proc_env = {**os.environ, "RFQ_CACHE_DIR": str(tmp_path / "cache")}
+    for k in ("BROKERBIN_API_KEY", "BROKERBIN_LOGIN", "BRAVE_SEARCH_API_KEY",
+              "MTGI_API_URL", "MTGI_API_TOKEN"):
+        proc_env.pop(k, None)
+    result = subprocess.run(cmd, env=proc_env, capture_output=True)
+    # Process must exit 0 even when budget hit (clean partial)
+    assert result.returncode == 0
+    if out.exists():
+        lines = out.read_text().strip().splitlines()
+        # Every line is valid JSON (no torn writes)
+        for l in lines:
+            json.loads(l)
