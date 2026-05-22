@@ -18,8 +18,8 @@ import sys
 
 SIZE_PATTERNS = [
     (re.compile(r"(\d+(?:\.\d+)?)\s*TB\b", re.I), "TB"),
-    (re.compile(r"(\d+)\s*GB\b", re.I),           "GB"),
-    (re.compile(r"(\d+)\s*MB\b", re.I),           "MB"),
+    (re.compile(r"(\d+(?:\.\d+)?)\s*GB\b", re.I), "GB"),
+    (re.compile(r"(\d+(?:\.\d+)?)\s*MB\b", re.I), "MB"),
 ]
 
 INTERFACE_PATTERNS = [
@@ -63,14 +63,20 @@ def extract_size(desc: str) -> str | None:
             continue
         val = float(m.group(1))
         # Sanity bounds
-        if unit == "TB" and (val < 0.001 or val > 1000): continue
-        if unit == "GB" and (val < 1 or val > 1_000_000): continue
-        # Format: trim trailing .0 from TB
-        if unit == "TB" and val == int(val):
-            return f"{int(val)}TB"
+        if unit == "TB" and (val < 0.001 or val > 1000):
+            continue
+        if unit == "GB" and (val < 1 or val > 1_000_000):
+            continue
+        if unit == "MB" and (val < 1 or val > 10_000_000):
+            continue
+        # Round to marketing sizes — vendors quote raw byte-derived capacities
+        # like 120.03 GB (= 128.04 GB binary) or 480.1 GB. Snap to nearest int
+        # for GB/MB; keep decimals for TB only.
         if unit == "TB":
+            if val == int(val):
+                return f"{int(val)}TB"
             return f"{val}TB"
-        return f"{int(val)}{unit}"
+        return f"{int(round(val))}{unit}"
     return None
 
 
