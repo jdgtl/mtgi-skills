@@ -247,6 +247,45 @@ _REAL_MPN_TOKEN_PATTERN = re.compile(r"\b([A-Z0-9][A-Z0-9\-]{7,})\b")
 _WEB_MFG_CONF_CAP = 0.85
 _WEB_DESC_CONF_CAP = 0.75
 
+# Tokens that look MPN-shaped but are actually interface specs, product
+# family names, or common words. Reject them as candidate_real_mpn matches.
+_CANDIDATE_REJECT_PATTERNS = (
+    re.compile(r"^SAS-\d+", re.I),
+    re.compile(r"^SATA-?\d*", re.I),
+    re.compile(r"^NVME?", re.I),
+    re.compile(r"^PCIE?", re.I),
+    re.compile(r"^\d+\s*GBPS", re.I),
+    re.compile(r"^\d+\s*GBE", re.I),
+    # Intel SSD family names ("D3-S4610", "DC-P4510") look MPN-shaped.
+    re.compile(r"^D[0-9]-S[0-9]+$", re.I),
+    re.compile(r"^DC-P[0-9]+$", re.I),
+)
+
+_CANDIDATE_REJECT_WORDS = {
+    "SPECIFICATIONS", "DATASHEET", "DOWNLOAD", "MANUFACTURER",
+    "ENTERPRISE", "PERFORMANCE", "COMPATIBLE",
+}
+
+
+def _is_valid_candidate_mpn(token: str) -> bool:
+    """Validate a candidate_real_mpn token from web search results.
+
+    Filters out interface specs (SAS-12GBPS), product family names (D3-S4610),
+    and common English words that happen to be ≥8 chars and ALL CAPS.
+    """
+    if not token or len(token) < 8:
+        return False
+    upper = token.upper()
+    # Must contain at least one digit AND one letter
+    if not any(c.isdigit() for c in upper) or not any(c.isalpha() for c in upper):
+        return False
+    if upper in _CANDIDATE_REJECT_WORDS:
+        return False
+    for pattern in _CANDIDATE_REJECT_PATTERNS:
+        if pattern.match(upper):
+            return False
+    return True
+
 
 def tier_web_search(mpn: str, vendor_manufacturer: str | None = None) -> dict[str, Any] | None:
     """Tier 3: Brave web search.
@@ -362,9 +401,13 @@ def tier_web_search(mpn: str, vendor_manufacturer: str | None = None) -> dict[st
 
     candidate_real_mpn: str | None = None
     if token_counts:
-        top_token, top_count = token_counts.most_common(1)[0]
-        if top_count >= 3:
-            candidate_real_mpn = top_token
+        # Walk the ranking until we find a token that passes validation.
+        for top_token, top_count in token_counts.most_common():
+            if top_count < 3:
+                break
+            if _is_valid_candidate_mpn(top_token):
+                candidate_real_mpn = top_token
+                break
 
     return {
         "source": "web_search",
