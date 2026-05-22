@@ -24,6 +24,14 @@ Follow these steps in order. Update the user after each step with a one-line sta
 
 ### 0. Pre-flight: credentials check
 
+**First, export the workspace path explicitly.** Autodetection covers most Cowork layouts, but exporting `RFQ_WORKSPACE_DIR` removes any ambiguity. If you can see the path of the current workspace folder (e.g. via the shell environment or the user's prompt), export it before any script call:
+
+```bash
+export RFQ_WORKSPACE_DIR=<absolute path to the persistent workspace folder>
+```
+
+This is the authoritative location for the chmod-600 credentials file and the enrichment cache. Skip this step if `RFQ_WORKSPACE_DIR` is already set.
+
 Before parsing anything, run `python scripts/check_setup.py`. If BrokerBin credentials are missing (exit code 1), stop and tell the user:
 
 > The rfq-normalizer skill isn't set up yet. Run `/rfq-setup` to configure BrokerBin credentials, then re-run this skill.
