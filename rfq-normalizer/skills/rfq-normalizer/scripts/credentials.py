@@ -1,44 +1,44 @@
 #!/usr/bin/env python3
 """Per-user credential store for the rfq-normalizer skill.
 
-Wraps the `keyring` PyPI package, which uses the native secure store on each
-platform: macOS Keychain, Windows Credential Manager, or Linux Secret Service
-(GNOME Keyring / KWallet). This gives consistent, OS-level protection across
-all three platforms without OS-specific code paths in the skill.
-
-Resolution order for each credential:
+Resolution order for each credential (first match wins):
   1. Environment variable (for dev / CI / power users)
-  2. System keyring (macOS / Windows / Linux native store)
-  3. None — caller should prompt the user via /rfq-setup
+  2. chmod-600 file in the workspace folder (Cowork-durable persistence)
+  3. System keyring (genuine local-Mac installs with a real backend)
+  4. None — caller should prompt the user via /rfq-setup
+
+The file path resolves in this order:
+  1. $RFQ_CREDS_FILE                       (explicit override)
+  2. <workspace_dir>/.rfq-normalizer.env   (default)
+  3. $HOME/.rfq-normalizer.env             (last resort)
+
+File format: `KEY=value` lines. The keys match the env-var names in
+CREDENTIAL_SCHEMA (BROKERBIN_API_KEY, BRAVE_SEARCH_API_KEY, etc.).
 
 CLI:
     python credentials.py status
     python credentials.py get brokerbin_api_key
     python credentials.py set brokerbin_api_key sk-XXXXX
     python credentials.py delete brokerbin_api_key
-
-Requires: `pip install keyring`  (see requirements.txt at the skill root).
+    python credentials.py backend
 """
 from __future__ import annotations
 import argparse
 import json
 import os
+import re
+import stat
 import sys
+from pathlib import Path
 
 try:
     import keyring
     import keyring.errors
+    _KEYRING_AVAILABLE = True
 except ImportError:
-    sys.stderr.write(
-        "ERROR: the `keyring` Python package is required.\n"
-        "Install it with:  python -m pip install --user keyring\n"
-        "Or:               pip install -r skills/rfq-normalizer/requirements.txt\n"
-    )
-    sys.exit(2)
+    _KEYRING_AVAILABLE = False
 
 
-# Schema: every credential the skill knows about. Add entries here as new
-# tiers come online. The /rfq-setup flow walks this dict.
 CREDENTIAL_SCHEMA: dict[str, dict[str, str]] = {
     "brokerbin_api_key": {
         "env": "BROKERBIN_API_KEY",
@@ -57,10 +57,6 @@ CREDENTIAL_SCHEMA: dict[str, dict[str, str]] = {
     },
 }
 
-# `service` is what keyring scopes the entry to; `account` is the credential
-# name. On macOS this maps to Keychain's kSecAttrService / kSecAttrAccount;
-# on Windows to Credential Manager's TargetName; on Linux to Secret Service
-# label attributes. All three back-ends key on the pair.
 KEYRING_SERVICE = "rfq-normalizer"
 
 
@@ -73,7 +69,48 @@ def _assert_known(name: str) -> dict[str, str]:
     return schema
 
 
+def _creds_file_path() -> Path:
+    explicit = os.environ.get("RFQ_CREDS_FILE")
+    if explicit:
+        return Path(explicit)
+    try:
+        from workspace import workspace_dir
+        return workspace_dir() / ".rfq-normalizer.env"
+    except Exception:
+        return Path.home() / ".rfq-normalizer.env"
+
+
+def _file_read_all() -> dict[str, str]:
+    path = _creds_file_path()
+    if not path.exists():
+        return {}
+    out: dict[str, str] = {}
+    for line in path.read_text().splitlines():
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        if "=" not in line:
+            continue
+        k, _, v = line.partition("=")
+        out[k.strip()] = v.strip()
+    return out
+
+
+def _file_write_all(values: dict[str, str]) -> None:
+    path = _creds_file_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lines = [f"{k}={v}" for k, v in sorted(values.items())]
+    path.write_text("\n".join(lines) + ("\n" if lines else ""))
+    path.chmod(0o600)
+
+
+def _file_get(name: str) -> str | None:
+    env_name = CREDENTIAL_SCHEMA[name]["env"]
+    return _file_read_all().get(env_name)
+
+
 def _keyring_get(name: str) -> str | None:
+    if not _KEYRING_AVAILABLE:
+        return None
     try:
         return keyring.get_password(KEYRING_SERVICE, name)
     except keyring.errors.NoKeyringError:
@@ -86,44 +123,78 @@ def get(name: str) -> str | None:
     env_value = os.environ.get(schema["env"])
     if env_value:
         return env_value
+    file_value = _file_get(name)
+    if file_value:
+        return file_value
     return _keyring_get(name)
 
 
 def set_(name: str, value: str) -> None:
-    """Persist a credential to the system keyring."""
+    """Persist a credential to the workspace file (preferred) or keyring.
+
+    Writes to the file source by default — that's the only storage that
+    survives a Cowork sandbox reset. Keyring is only used when the file path
+    isn't writable (e.g. a hardened sandbox).
+    """
     _assert_known(name)
     if not value:
         raise ValueError(f"Refusing to store empty value for {name}")
+    env_name = CREDENTIAL_SCHEMA[name]["env"]
+    path = _creds_file_path()
     try:
-        keyring.set_password(KEYRING_SERVICE, name, value)
-    except keyring.errors.NoKeyringError as e:
-        raise RuntimeError(
-            f"No system keyring available ({e}). Set the env var "
-            f"{CREDENTIAL_SCHEMA[name]['env']} instead, or install a keyring "
-            f"backend (macOS: built-in; Windows: built-in; Linux: install "
-            f"`secretstorage` and run a Secret Service daemon)."
-        ) from e
+        values = _file_read_all()
+        values[env_name] = value
+        _file_write_all(values)
+        return
+    except OSError as file_err:
+        if not _KEYRING_AVAILABLE:
+            raise RuntimeError(
+                f"Could not write credentials file at {path}: {file_err}. "
+                f"Set the env var {env_name} instead, or set "
+                f"RFQ_CREDS_FILE to a writable path."
+            ) from file_err
+        try:
+            keyring.set_password(KEYRING_SERVICE, name, value)
+        except keyring.errors.NoKeyringError as e:
+            raise RuntimeError(
+                f"Could not write {path} ({file_err}) and no system keyring "
+                f"is available ({e}). Set the env var {env_name} instead, "
+                f"or set RFQ_CREDS_FILE to a writable path."
+            ) from e
 
 
 def delete(name: str) -> None:
-    """Remove a credential from the system keyring. Silent if not present."""
+    """Remove a credential from both file and keyring. Silent if absent."""
     _assert_known(name)
+    env_name = CREDENTIAL_SCHEMA[name]["env"]
     try:
-        keyring.delete_password(KEYRING_SERVICE, name)
-    except (keyring.errors.PasswordDeleteError, keyring.errors.NoKeyringError):
+        values = _file_read_all()
+        if env_name in values:
+            del values[env_name]
+            _file_write_all(values)
+    except OSError:
         pass
+    if _KEYRING_AVAILABLE:
+        try:
+            keyring.delete_password(KEYRING_SERVICE, name)
+        except (keyring.errors.PasswordDeleteError, keyring.errors.NoKeyringError):
+            pass
 
 
 def status() -> dict[str, dict]:
     """Report each known credential's source and presence.
 
-    Returns {name: {"label": str, "source": "env"|"keyring"|None, "set": bool}}.
+    Returns {name: {"label": str, "source": "env"|"file"|"keyring"|None, "set": bool}}.
     """
     out: dict[str, dict] = {}
+    file_values = _file_read_all()
     for name, schema in CREDENTIAL_SCHEMA.items():
         label = schema["label"]
         if os.environ.get(schema["env"]):
             out[name] = {"label": label, "source": "env", "set": True}
+            continue
+        if file_values.get(schema["env"]):
+            out[name] = {"label": label, "source": "file", "set": True}
             continue
         if _keyring_get(name):
             out[name] = {"label": label, "source": "keyring", "set": True}
@@ -133,18 +204,27 @@ def status() -> dict[str, dict]:
 
 
 def backend_name() -> str:
-    """Human-readable name of the active keyring backend, for diagnostics."""
+    """Human-readable diagnostic — where would set_() store a new value?"""
+    path = _creds_file_path()
     try:
-        return str(keyring.get_keyring())
-    except Exception as e:
-        return f"<unavailable: {e}>"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if os.access(path.parent, os.W_OK):
+            return f"file: {path}"
+    except OSError:
+        pass
+    if _KEYRING_AVAILABLE:
+        try:
+            return f"keyring: {keyring.get_keyring()}"
+        except Exception as e:
+            return f"<keyring unavailable: {e}>"
+    return "<no writable backend — use env vars>"
 
 
 def _main() -> int:
     ap = argparse.ArgumentParser(description="rfq-normalizer credential store")
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("status", help="show source + presence of every known credential")
-    sub.add_parser("backend", help="show the active keyring backend (diagnostic)")
+    sub.add_parser("backend", help="show where set_() would write (diagnostic)")
     p_get = sub.add_parser("get", help="print a credential value to stdout")
     p_get.add_argument("name")
     p_set = sub.add_parser("set", help="store a credential")
