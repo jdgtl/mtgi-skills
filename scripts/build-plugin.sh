@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+#
+# build-plugin.sh — package a plugin directory into a .plugin file
+# (a zip) for Claude Cowork's "install from file" flow.
+#
+# Usage:
+#   scripts/build-plugin.sh [plugin-name]
+#
+# Defaults to "rfq-normalizer" when no plugin name is given. The version
+# is read from <plugin>/.claude-plugin/plugin.json. Output lands at
+# dist/<plugin>-<version>.plugin.
+
+set -euo pipefail
+
+PLUGIN="${1:-rfq-normalizer}"
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+PLUGIN_DIR="${REPO_ROOT}/${PLUGIN}"
+MANIFEST="${PLUGIN_DIR}/.claude-plugin/plugin.json"
+DIST_DIR="${REPO_ROOT}/dist"
+
+if [[ ! -d "${PLUGIN_DIR}" ]]; then
+  echo "error: plugin directory not found: ${PLUGIN_DIR}" >&2
+  exit 1
+fi
+
+if [[ ! -f "${MANIFEST}" ]]; then
+  echo "error: missing manifest: ${MANIFEST}" >&2
+  exit 1
+fi
+
+# Extract version without depending on jq.
+VERSION="$(
+  python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['version'])" \
+    "${MANIFEST}"
+)"
+
+if [[ -z "${VERSION}" ]]; then
+  echo "error: could not read version from ${MANIFEST}" >&2
+  exit 1
+fi
+
+mkdir -p "${DIST_DIR}"
+OUTPUT="${DIST_DIR}/${PLUGIN}-${VERSION}.plugin"
+rm -f "${OUTPUT}"
+
+echo "Building ${PLUGIN} v${VERSION}..."
+echo "  source: ${PLUGIN_DIR}"
+echo "  output: ${OUTPUT}"
+
+# Zip the plugin tree. -r recursive, -q quiet.
+# Excludes:
+#   .DS_Store          macOS metadata
+#   __pycache__/*      Python bytecode dirs
+#   *.pyc / *.pyo      Python bytecode files
+#   .cache/*           runtime cache (e.g. brokerbin-enrichment.json)
+#   examples/*         sample data not needed at install time
+(
+  cd "${REPO_ROOT}"
+  zip -r -q "${OUTPUT}" "${PLUGIN}" \
+    -x "*/.DS_Store" \
+    -x "*/__pycache__/*" \
+    -x "*.pyc" \
+    -x "*.pyo" \
+    -x "*/.cache/*" \
+    -x "*/examples/*"
+)
+
+SIZE="$(du -h "${OUTPUT}" | cut -f1)"
+echo "Built ${OUTPUT} (${SIZE})"
