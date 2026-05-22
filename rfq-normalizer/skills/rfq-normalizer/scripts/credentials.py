@@ -26,8 +26,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import re
-import stat
 import sys
 from pathlib import Path
 
@@ -99,8 +97,22 @@ def _file_write_all(values: dict[str, str]) -> None:
     path = _creds_file_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     lines = [f"{k}={v}" for k, v in sorted(values.items())]
-    path.write_text("\n".join(lines) + ("\n" if lines else ""))
-    path.chmod(0o600)
+    content = "\n".join(lines) + ("\n" if lines else "")
+    # Open with O_CREAT | O_WRONLY | O_TRUNC at mode 0o600 so the file is
+    # never world-readable, even briefly. Then os.replace() into place
+    # atomically so a crash mid-write can't truncate the live file.
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    fd = os.open(tmp, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(content)
+    except Exception:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+    os.replace(tmp, path)
 
 
 def _file_get(name: str) -> str | None:

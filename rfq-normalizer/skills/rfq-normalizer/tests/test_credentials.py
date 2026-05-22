@@ -83,3 +83,28 @@ def test_delete_removes_from_file(monkeypatch, tmp_path):
     text = creds_file.read_text()
     assert "BROKERBIN_API_KEY" not in text
     assert "BRAVE_SEARCH_API_KEY=y" in text
+
+
+def test_set_preserves_sibling_keys(monkeypatch, tmp_path):
+    creds_file = tmp_path / ".rfq-normalizer.env"
+    creds_file.write_text(
+        "BRAVE_SEARCH_API_KEY=brave-existing\nBROKERBIN_LOGIN=alice\n"
+    )
+    creds_file.chmod(0o600)
+    c = _reload(
+        monkeypatch,
+        BROKERBIN_API_KEY=None,
+        BRAVE_SEARCH_API_KEY=None,
+        BROKERBIN_LOGIN=None,
+        RFQ_CREDS_FILE=str(creds_file),
+        RFQ_WORKSPACE_DIR=None,
+    )
+    c.set_("brokerbin_api_key", "new-key")
+    text = creds_file.read_text()
+    assert "BROKERBIN_API_KEY=new-key" in text
+    assert "BRAVE_SEARCH_API_KEY=brave-existing" in text
+    assert "BROKERBIN_LOGIN=alice" in text
+    # mode preserved
+    import stat
+    mode = stat.S_IMODE(creds_file.stat().st_mode)
+    assert mode == 0o600
