@@ -451,6 +451,15 @@ def enrich(
     Cache layer: cached enrichment for this MPN is consulted first. If fresh,
     we never touch the network. Successful tier walks are persisted after.
     """
+    # Strip well-known brand prefixes ("INTEL SSDSC2BB012T6" → "SSDSC2BB012T6")
+    # so scoring, lookups, and cache keys see the canonical part number.
+    from mpn_patterns import strip_brand_prefix
+    raw_mpn = mpn
+    cleaned_mpn, brand = strip_brand_prefix(mpn)
+    if brand is not None and vendor_manufacturer is None:
+        vendor_manufacturer = brand
+    mpn = cleaned_mpn
+
     current_values = current_values or {}
 
     # Pre-flight: any field the caller already has is excluded from the tier walk.
@@ -467,7 +476,7 @@ def enrich(
     }
 
     if not truly_needed:
-        return {
+        _early = {
             "mpn": mpn,
             "fields": results,
             "provenance": provenance,
@@ -476,6 +485,9 @@ def enrich(
             "candidates": {},
             "cache_status": "skipped",
         }
+        if raw_mpn != mpn:
+            _early["original_mpn"] = raw_mpn
+        return _early
 
     # Cache layer
     cache_status = "miss"
@@ -502,7 +514,7 @@ def enrich(
             still_unfilled = [f for f in truly_needed if results[f] is None]
             if not still_unfilled:
                 cached_extras = cached.get("extras") or {}
-                return {
+                _cache_hit = {
                     "mpn": mpn,
                     "fields": results,
                     "provenance": provenance,
@@ -515,12 +527,15 @@ def enrich(
                         candidate_real_mpn=cached_extras.get("candidate_real_mpn"),
                     ),
                 }
+                if raw_mpn != mpn:
+                    _cache_hit["original_mpn"] = raw_mpn
+                return _cache_hit
         elif cached and cached.get("is_miss"):
             # Fresh "no listings" miss — don't re-hit upstream tiers for the
             # TTL window. Re-surface any cached candidate_real_mpn so the
             # operator still gets the vendor-SKU hint without us re-querying.
             cached_extras = cached.get("extras") or {}
-            return {
+            _miss_cached = {
                 "mpn": mpn,
                 "fields": results,
                 "provenance": provenance,
@@ -533,6 +548,9 @@ def enrich(
                     candidate_real_mpn=cached_extras.get("candidate_real_mpn"),
                 ),
             }
+            if raw_mpn != mpn:
+                _miss_cached["original_mpn"] = raw_mpn
+            return _miss_cached
 
     raw_log = []
 
@@ -674,7 +692,7 @@ def enrich(
         except ImportError:
             pass  # cache module unavailable, skip persistence silently
 
-    return {
+    _result = {
         "mpn": mpn,
         "fields": results,
         "provenance": provenance,
@@ -684,6 +702,9 @@ def enrich(
         "cache_status": cache_status,
         "mpn_assessment": pattern_assessment,
     }
+    if raw_mpn != mpn:
+        _result["original_mpn"] = raw_mpn
+    return _result
 
 
 def main() -> int:
@@ -770,7 +791,8 @@ def main() -> int:
                 use_cache=use_cache,
                 vendor_manufacturer=item.get("vendor_manufacturer"),
             )
-            r["mpn"] = item["mpn"]
+            # r["mpn"] is already the cleaned MPN from enrich(); r["original_mpn"]
+            # carries the raw vendor string when stripping occurred. No override needed.
             return r
 
         import time as _time

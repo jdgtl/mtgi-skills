@@ -80,6 +80,21 @@ Read `reference/template-schema.md` for the canonical output columns. For each M
 
 Show the user a mapping table and confirm before proceeding.
 
+### 2b. Strip brand prefixes from MPNs
+
+Before consolidation, normalize each row's MPN. Vendors sometimes prepend the manufacturer to the MPN ("INTEL SSDSC2BB012T6") which breaks downstream scoring and lookups. Use `mpn_patterns.strip_brand_prefix(mpn)`:
+
+```python
+from mpn_patterns import strip_brand_prefix
+cleaned, brand = strip_brand_prefix(row["MPN"])
+if brand is not None:
+    # Preserve the original vendor string in Description for audit
+    row["Description"] = f"{row.get('Description', '')} (vendor MPN: {row['MPN']})".strip()
+    row["MPN"] = cleaned
+```
+
+Only strips an allowlisted set of brand names (INTEL, TOSHIBA, HGST, WDC, SAMSUNG, MICRON, KIOXIA, SANDISK, SEAGATE). Unknown prefixes are passed through unchanged. The `brand` value should also be passed to `enrich_mpn.py --vendor-mfg` so BrokerBin consensus can corroborate.
+
 ### 3. Consolidate duplicate rows
 
 Run `scripts/consolidate_duplicates.py` with the `mode` and `rfq_mode` detected by `analyze_columns`:

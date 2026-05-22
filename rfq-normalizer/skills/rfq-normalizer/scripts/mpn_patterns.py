@@ -156,19 +156,23 @@ _BRAND_PREFIX_RE = re.compile(
 )
 
 
-def strip_brand_prefix(mpn: str) -> tuple[str, str]:
+def strip_brand_prefix(mpn: str) -> tuple[str, str | None]:
     """Strip a well-known brand prefix from an MPN.
 
-    Returns (cleaned_mpn, original_string). When no known prefix is present,
-    cleaned == original. The caller should preserve `original` somewhere
-    (description column, provenance) so the swap is auditable.
+    Returns (cleaned_mpn, brand). `brand` is the uppercased manufacturer
+    name (e.g. "INTEL") when a known prefix matched, otherwise None.
+    When no known prefix is present, cleaned_mpn == mpn and brand is None.
+
+    The caller should preserve the original vendor string (e.g. in the
+    Description column) and pass `brand` to BrokerBin's `vendor_manufacturer`
+    parameter to corroborate consensus.
     """
     if not isinstance(mpn, str):
-        return mpn, mpn
+        return mpn, None
     m = _BRAND_PREFIX_RE.match(mpn.strip())
     if not m:
-        return mpn, mpn
-    return m.group(2), mpn
+        return mpn, None
+    return m.group(2), m.group(1).upper()
 
 
 if __name__ == "__main__":

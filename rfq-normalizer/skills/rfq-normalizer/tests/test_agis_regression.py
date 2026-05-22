@@ -48,9 +48,9 @@ def test_historical_keeps_distinct_bid_events():
 
 
 def test_brand_prefix_stripped():
-    cleaned, original = strip_brand_prefix("INTEL SSDSC2BB012T6")
+    cleaned, brand = strip_brand_prefix("INTEL SSDSC2BB012T6")
     assert cleaned == "SSDSC2BB012T6"
-    assert original == "INTEL SSDSC2BB012T6"
+    assert brand == "INTEL"
 
 
 def test_case_collision_surfaces_as_ambiguous():
