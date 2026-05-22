@@ -62,3 +62,26 @@ def test_batch_resumes_skipping_completed_mpns(tmp_path):
     assert mpns_written.count("A-1") == 1
     assert mpns_written.count("B-2") == 1
     assert mpns_written.count("C-3") == 1
+
+
+def test_parallel_n_processes_all_mpns_without_duplicates(tmp_path):
+    mpns = [f"MPN-{i:03d}" for i in range(20)]
+    inputs = tmp_path / "in.json"
+    inputs.write_text(json.dumps([{"mpn": m, "need": []} for m in mpns]))
+    out = tmp_path / "out.jsonl"
+    cmd = [
+        sys.executable, str(ENRICH),
+        "--batch", str(inputs),
+        "--results-jsonl", str(out),
+        "--parallel", "4",
+        "--no-cache",
+    ]
+    proc_env = {**os.environ, "RFQ_CACHE_DIR": str(tmp_path / "cache")}
+    for k in ("BROKERBIN_API_KEY", "BROKERBIN_LOGIN", "BRAVE_SEARCH_API_KEY",
+              "MTGI_API_URL", "MTGI_API_TOKEN"):
+        proc_env.pop(k, None)
+    subprocess.run(cmd, env=proc_env, check=True, capture_output=True)
+    lines = out.read_text().strip().splitlines()
+    written = [json.loads(l)["mpn"] for l in lines]
+    assert sorted(written) == sorted(mpns)
+    assert len(written) == len(set(written)), "duplicates emitted"

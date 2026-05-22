@@ -670,6 +670,12 @@ def main() -> int:
         default=None,
         help="Stream one result per line to this JSONL file (resumable). When set, suppresses the aggregated stdout JSON list.",
     )
+    ap.add_argument(
+        "--parallel",
+        type=int,
+        default=1,
+        help="Process N MPNs concurrently via a thread pool (safe up to ~10 per session vs Brave). Default 1.",
+    )
     args = ap.parse_args()
 
     default_need = [f.strip() for f in args.need.split(",") if f.strip()]
@@ -696,20 +702,32 @@ def main() -> int:
         items = [it for it in items if it["mpn"] not in done_mpns]
         cache_hits = 0
         results_count = len(done_mpns)
-        with open(out_path, "a") as out_f:
-            for item in items:
-                r = enrich(
-                    item["mpn"],
-                    item.get("need", default_need),
-                    current_values=item.get("current"),
-                    use_cache=use_cache,
-                    vendor_manufacturer=item.get("vendor_manufacturer"),
-                )
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        import threading
+
+        write_lock = threading.Lock()
+
+        def _process(item):
+            r = enrich(
+                item["mpn"],
+                item.get("need", default_need),
+                current_values=item.get("current"),
+                use_cache=use_cache,
+                vendor_manufacturer=item.get("vendor_manufacturer"),
+            )
+            r["mpn"] = item["mpn"]
+            return r
+
+        with open(out_path, "a") as out_f, \
+             ThreadPoolExecutor(max_workers=max(1, args.parallel)) as pool:
+            futures = [pool.submit(_process, it) for it in items]
+            for fut in as_completed(futures):
+                r = fut.result()
                 if r.get("cache_status") in ("hit", "skipped", "miss_cached"):
                     cache_hits += 1
-                r["mpn"] = item["mpn"]
-                out_f.write(json.dumps(r, default=str) + "\n")
-                out_f.flush()
+                with write_lock:
+                    out_f.write(json.dumps(r, default=str) + "\n")
+                    out_f.flush()
                 results_count += 1
         json.dump(
             {"count": results_count, "cache_hits": cache_hits,
