@@ -6,9 +6,11 @@ imported by the team — a cache hit returns instantly with no API call,
 preserving the BrokerBin quota.
 
 Cache location (in priority order):
-  1. $RFQ_CACHE_DIR env var (recommended in Cowork)
-  2. ./.cache/rfq-normalizer/ relative to the skill folder
-  3. $HOME/.cache/rfq-normalizer/
+  1. $RFQ_CACHE_DIR env var (explicit override)
+  2. <workspace_dir>/.rfq-cache/  (workspace.workspace_dir())
+  3. $HOME/.cache/rfq-normalizer/  (last-resort fallback)
+
+The skill folder is NEVER used — it's read-only in Cowork.
 
 TTLs:
   - successful enrichment: CACHE_TTL_DAYS (default 60d — specs are stable)
@@ -36,8 +38,11 @@ def _cache_dir() -> Path:
     if explicit:
         p = Path(explicit)
     else:
-        skill_root = Path(__file__).resolve().parent.parent
-        p = skill_root / ".cache"
+        try:
+            from workspace import workspace_dir
+            p = workspace_dir() / ".rfq-cache"
+        except Exception:
+            p = Path.home() / ".cache" / "rfq-normalizer"
     p.mkdir(parents=True, exist_ok=True)
     return p
 
