@@ -61,13 +61,22 @@ Show the user a mapping table and confirm before proceeding.
 
 ### 3. Consolidate duplicate rows
 
-Run `scripts/consolidate_duplicates.py` with the `mode` from step 1b:
-- `mode='sum'` (default) — each row already has a Quantity column; sum the values
-- `mode='count'` — each row is one physical item; count rows per MPN (the output gets a `Quantity` column with the row count)
+Run `scripts/consolidate_duplicates.py` with the `mode` and `rfq_mode` detected by `analyze_columns`:
 
-Groups by **exact** MPN + condition. Returns:
-- `consolidated[]` — one row per unique (MPN, condition) pair
-- `ambiguous_pairs[]` — MPNs that look similar but aren't identical (e.g., differ by case/whitespace)
+- `mode='sum'` (default) — each row already has a Quantity column; sum the values
+- `mode='count'` — each row is one physical item; count rows per MPN
+
+And, critically, pass `rfq_mode`:
+
+- `rfq_mode='live'` — group by (MPN, condition) only. For sourcing lists.
+- `rfq_mode='historical'` — group by (MPN, condition, bid_price, winning_bid, outcome). **Never merges distinct bid events** — preserves pricing history.
+
+`analyze_columns.py` already emits `suggested_rfq_mode` and the relevant column names (`bid_price_column`, `outcome_column`); pass them through.
+
+Returns:
+- `consolidated[]` — one row per unique key
+- `ambiguous_pairs[]` — MPNs differing only by case/whitespace
+- `qty_in`, `qty_out` — total quantity in vs out (must match — script raises if not)
 
 For every ambiguous pair, ask the user: "These look like the same part — should I merge them?" Show both raw strings. Never auto-merge.
 
