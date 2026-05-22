@@ -57,3 +57,8 @@ def test_no_strip_for_unknown_prefix():
     # Vendor brand prefixes outside the allowlist must NOT be stripped.
     cleaned, original = strip_brand_prefix("ACME WIDGET-42")
     assert cleaned == "ACME WIDGET-42"
+
+
+def test_sandisk_sdlf_multi_letter():
+    s = score_mpn("SDLFAAAR-019T-1HA1")
+    assert s.has_known_prefix

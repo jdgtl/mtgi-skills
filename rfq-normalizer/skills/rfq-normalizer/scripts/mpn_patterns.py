@@ -45,7 +45,7 @@ PATTERNS: list[tuple[re.Pattern, str, str]] = [
     (re.compile(r"^THNSF[0-9A-Z].*", re.I),     "Toshiba",          "Toshiba/Kioxia client SSD"),
     (re.compile(r"^KPM[0-9A-Z].*", re.I),       "Kioxia",           "Kioxia datacenter SAS SSD (KPM5/KPM6)"),
     (re.compile(r"^KXG[0-9A-Z].*", re.I),       "Kioxia",           "Kioxia datacenter NVMe SSD"),
-    (re.compile(r"^SDFA[A-Z]?[0-9-].*|^SDLF[A-Z]?[0-9-].*", re.I),
+    (re.compile(r"^SDFA[A-Z]{0,4}[0-9-].*|^SDLF[A-Z]{0,4}[0-9-].*", re.I),
                                                 "SanDisk",          "SanDisk/WD enterprise SSD"),
     (re.compile(r"^0F[0-9]{4,}.*", re.I),       "HGST",             "HGST OEM part numbers (0F22811 etc.)"),
     # ── Networking ──────────────────────────────────────────────────────────
