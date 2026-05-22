@@ -50,6 +50,19 @@ Pipe the parse output into `scripts/analyze_columns.py`. This returns:
 
 **Surface the warnings to the operator** before proceeding. Especially for blank-column warnings — vendors often forget to fill required data.
 
+### 1c. Settings form
+
+After analyze surfaces its warnings, ask the operator a **single** settings card (one elicitation, not four separate prompts) covering:
+
+| Setting | Default | Where the default comes from |
+|---|---|---|
+| Default Condition for the file | `used_good` | Detected from a `Grade` column; ask explicitly if no grade is present. |
+| Outcome Date source | `filename` if a date is parseable from the input filename, else `ask`. | Parse `YYYY-MM-DD` or `M-D-YYYY` patterns from the input filename. |
+| Consolidation policy | `historical` if `analyze_columns` returned `suggested_rfq_mode='historical'`, else `live`. | step 1b output. |
+| Enrichment scope | `full` | `free-only` (regex + cache only), `top-N` (cap API calls), or `full` (run all configured tiers). |
+
+Present all four with sensible defaults pre-filled. After this single interaction, only ambiguous-merge prompts (step 3) and confirmations (vendor-SKU swaps in step 5) should require operator input.
+
 ### 2. Map vendor columns to MTGI fields
 
 Read `reference/template-schema.md` for the canonical output columns. For each MTGI field, find the best matching vendor column using:
@@ -61,23 +74,28 @@ Show the user a mapping table and confirm before proceeding.
 
 ### 3. Consolidate duplicate rows
 
-Run `scripts/consolidate_duplicates.py` with the `mode` from step 1b:
-- `mode='sum'` (default) — each row already has a Quantity column; sum the values
-- `mode='count'` — each row is one physical item; count rows per MPN (the output gets a `Quantity` column with the row count)
+Run `scripts/consolidate_duplicates.py` with the `mode` and `rfq_mode` detected by `analyze_columns`:
 
-Groups by **exact** MPN + condition. Returns:
-- `consolidated[]` — one row per unique (MPN, condition) pair
-- `ambiguous_pairs[]` — MPNs that look similar but aren't identical (e.g., differ by case/whitespace)
+- `mode='sum'` (default) — each row already has a Quantity column; sum the values
+- `mode='count'` — each row is one physical item; count rows per MPN
+
+And, critically, pass `rfq_mode`:
+
+- `rfq_mode='live'` — group by (MPN, condition) only. For sourcing lists.
+- `rfq_mode='historical'` — group by (MPN, condition, bid_price, winning_bid, outcome). **Never merges distinct bid events** — preserves pricing history.
+
+`analyze_columns.py` already emits `suggested_rfq_mode` and the relevant column names (`bid_price_column`, `outcome_column`); pass them through.
+
+Returns:
+- `consolidated[]` — one row per unique key
+- `ambiguous_pairs[]` — MPNs differing only by case/whitespace
+- `qty_in`, `qty_out` — total quantity in vs out (must match — script raises if not)
 
 For every ambiguous pair, ask the user: "These look like the same part — should I merge them?" Show both raw strings. Never auto-merge.
 
 ### 4. Split descriptions into spec columns
 
-Run `scripts/split_description.py` on each row's description. This uses regex patterns from `reference/description-patterns.md` to extract:
-- `size` (e.g., "1.6TB", "32GB", "480GB")
-- `interface` (e.g., "SATA", "SAS", "NVMe", "PCIe")
-- `drive_type` (e.g., "SSD", "HDD", "M.2", "U.2")
-- `form_factor` (e.g., "2.5in", "3.5in", "M.2 2280")
+Run `scripts/split_description.py` over each row, mining **all text columns** (the vendor's `Description`, `Size`, `Notes`, etc.), not just the primary description. Vendors frequently hide spec hints in the Size column (e.g., "1.2 TB 10K SAS", "7.68TB SSD NVMe"). Use `split_row(row, text_columns=[...])` from the script's API; pass the list of text columns the column-mapping step identified.
 
 Each extracted value gets a `source: 'regex'` provenance entry. If the regex can't extract a field with high confidence, leave it blank and flag for enrichment.
 
@@ -95,7 +113,12 @@ For every row with any missing field, walk this cascade. **Pass `--current` with
 
 The skill also keeps a **persistent MPN cache** at `.cache/brokerbin-enrichment.json`. Cache hits return instantly with no API call. Cache TTL: 60 days for successful enrichment, 7 days for "no listings" misses. To inspect or clear: `python scripts/cache.py {stats|clear|show MPN}`.
 
-Stop as soon as a tier fills the gaps with high confidence (≥0.90).
+Stop as soon as a tier fills the gaps. Per-field policy:
+
+- **Optional spec fields** (size, interface, drive_type, form_factor): fill at confidence ≥ 0.60. Below 0.90, the cell is tagged `tagged_low_confidence` in provenance and gets an `[unverified — {source} consensus N%]` note inline. No per-cell prompting — the operator audits via the provenance log.
+- **Required fields** (MPN, Quantity, Condition) and **MPN swaps**: never auto-fill or auto-apply. Always confirm with the operator.
+
+The run summary reports the confidence mix (e.g., "133 medium, 8 low, 0 blocked") rather than blocking the pipeline.
 
 **Low-confidence descriptions are filled with an annotation.** When BrokerBin's seller-authored descriptions don't reach high consensus (modal description present in <90% of listings), the modal description is still written to the output with `[unverified — brokerbin consensus 59%]` appended. The provenance entry has `tagged_low_confidence: true`. The operator can edit or accept; a blank cell wouldn't have been more useful.
 
@@ -114,7 +137,7 @@ If no `candidate_real_mpn` is present, fall back to the original phrasing (no su
 
 Run `scripts/enrich_mpn.py <mpn>` which orchestrates this. Each tier returns `{value, source, confidence, raw_response}`.
 
-**Critical:** if confidence < 0.9 for any field, do NOT auto-fill. Surface to user with: "I found X via Y with Z% confidence — accept?"
+**Critical:** for required fields, ALWAYS surface to user with: "I found X via Y with Z% confidence — accept?" For optional spec fields, see the per-field policy above; auto-fill at ≥ 0.60 with provenance tagging.
 
 ### 6. Generate the output
 
@@ -133,7 +156,7 @@ Tell the user: "Upload `<input>-normalized.xlsx` to MTGI via /rfqs/new. The prov
 
 ## Setup (one-time)
 
-On a fresh install, run `/rfq-setup`. It installs the `keyring` Python package, then walks you through entering BrokerBin credentials and stores them in the OS-native secure store (macOS Keychain / Windows Credential Manager / Linux Secret Service). They persist across Claude restarts and machine reboots.
+On a fresh install, run `/rfq-setup`. It writes credentials to a chmod-600 file at `<workspace>/.rfq-normalizer.env` (set `RFQ_WORKSPACE_DIR` or `RFQ_CREDS_FILE` to override). The workspace file is the only storage that survives a Cowork sandbox reset, so it is the primary persistence layer. On genuine local-Mac installs with a working OS keychain the keyring acts as an additional fallback when the file path isn't writable.
 
 Power users and CI can override stored values with env vars:
 
@@ -142,13 +165,18 @@ Power users and CI can override stored values with env vars:
 MTGI_API_URL=https://your-mtgi-instance.example.com
 MTGI_API_TOKEN=<token-from-MTGI-settings>
 
-# Override keyring — wins when set
+# Override the workspace file — wins when set
 BROKERBIN_API_KEY=<key>
 BROKERBIN_LOGIN=<username>
 BRAVE_SEARCH_API_KEY=<key>
+
+# Optional path overrides
+RFQ_WORKSPACE_DIR=/path/to/persistent/dir
+RFQ_CREDS_FILE=/path/to/.rfq-normalizer.env
+RFQ_CACHE_DIR=/path/to/.rfq-cache
 ```
 
-Inspect what's configured with `python scripts/check_setup.py`. Manage stored credentials directly with `python scripts/credentials.py {status|get|set|delete|backend} ...`.
+Inspect what's configured with `python scripts/check_setup.py`. Manage stored credentials directly with `python scripts/credentials.py {status|get|set|delete|backend} ...`. The `backend` subcommand prints the active storage location (file path or keyring backend name).
 
 ## Files in this skill
 
@@ -166,7 +194,8 @@ Inspect what's configured with `python scripts/check_setup.py`. Manage stored cr
 - `scripts/enrich_mpn.py` — tiered enrichment cascade with pre-flight skip + persistent cache
 - `scripts/brokerbin_client.py` — BrokerBin API v2 client (Bearer auth, rate-limited)
 - `scripts/brave_client.py` — Brave Search API v1 client (Tier 3 web search)
-- `scripts/credentials.py` — per-user credential store via the `keyring` library
+- `scripts/credentials.py` — per-user credential store; chmod-600 workspace file with env-var and keyring fallbacks
+- `scripts/workspace.py` — workspace-folder detection for persistent storage
 - `scripts/cache.py` — persistent MPN cache (60-day TTL); CLI for stats/clear/show
 - `scripts/write_template.py` — emit normalized xlsx + provenance
 - `scripts/check_setup.py` — report credential + tier configuration

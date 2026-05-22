@@ -6,9 +6,11 @@ imported by the team — a cache hit returns instantly with no API call,
 preserving the BrokerBin quota.
 
 Cache location (in priority order):
-  1. $RFQ_CACHE_DIR env var (recommended in Cowork)
-  2. ./.cache/rfq-normalizer/ relative to the skill folder
-  3. $HOME/.cache/rfq-normalizer/
+  1. $RFQ_CACHE_DIR env var (explicit override)
+  2. <workspace_dir>/.rfq-cache/  (workspace.workspace_dir())
+  3. $HOME/.cache/rfq-normalizer/  (last-resort fallback)
+
+The skill folder is NEVER used — it's read-only in Cowork.
 
 TTLs:
   - successful enrichment: CACHE_TTL_DAYS (default 60d — specs are stable)
@@ -19,9 +21,10 @@ The cache is a single JSON file. For 10k MPNs that's ~5MB on disk — fine.
 If it ever grows past that, swap for SQLite.
 """
 from __future__ import annotations
+import fcntl
 import json
 import os
-import time
+from contextlib import contextmanager
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any
@@ -36,14 +39,30 @@ def _cache_dir() -> Path:
     if explicit:
         p = Path(explicit)
     else:
-        skill_root = Path(__file__).resolve().parent.parent
-        p = skill_root / ".cache"
+        try:
+            from workspace import workspace_dir
+            p = workspace_dir() / ".rfq-cache"
+        except Exception:
+            p = Path.home() / ".cache" / "rfq-normalizer"
     p.mkdir(parents=True, exist_ok=True)
     return p
 
 
 def _cache_path() -> Path:
     return _cache_dir() / CACHE_FILENAME
+
+
+@contextmanager
+def _cache_lock():
+    """Exclusive lock over the cache dir, so concurrent put() calls serialize."""
+    lock_path = _cache_dir() / ".lock"
+    # touch the lockfile
+    with open(lock_path, "a+") as fh:
+        try:
+            fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+            yield
+        finally:
+            fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
 
 
 def _normalize_key(mpn: str) -> str:
@@ -105,8 +124,9 @@ def put(
     `extras` is an optional free-form dict for tier-specific data that doesn't
     fit the flat fields/field_confidence shape — e.g. web_search's
     candidate_real_mpn. Old cache entries without `extras` read as {}.
+
+    Parallel-safe: serialized via an fcntl lock on the cache dir.
     """
-    data = _load_all()
     entry = {
         "cached_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "source": source,
@@ -116,8 +136,10 @@ def put(
     }
     if extras:
         entry["extras"] = extras
-    data[_normalize_key(mpn)] = entry
-    _save_all(data)
+    with _cache_lock():
+        data = _load_all()
+        data[_normalize_key(mpn)] = entry
+        _save_all(data)
 
 
 def stats() -> dict:

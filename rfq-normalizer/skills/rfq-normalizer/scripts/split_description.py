@@ -18,8 +18,8 @@ import sys
 
 SIZE_PATTERNS = [
     (re.compile(r"(\d+(?:\.\d+)?)\s*TB\b", re.I), "TB"),
-    (re.compile(r"(\d+)\s*GB\b", re.I),           "GB"),
-    (re.compile(r"(\d+)\s*MB\b", re.I),           "MB"),
+    (re.compile(r"(\d+(?:\.\d+)?)\s*GB\b", re.I), "GB"),
+    (re.compile(r"(\d+(?:\.\d+)?)\s*MB\b", re.I), "MB"),
 ]
 
 INTERFACE_PATTERNS = [
@@ -47,8 +47,8 @@ DRIVE_TYPE_PATTERNS = [
 ]
 
 FORM_FACTOR_PATTERNS = [
-    (re.compile(r"\b2\.5\s*(?:\"|inch|in)\b|\bSFF\b", re.I), "2.5in"),
-    (re.compile(r"\b3\.5\s*(?:\"|inch|in)\b|\bLFF\b", re.I), "3.5in"),
+    (re.compile(r"\b2\.5\s*(?:\"(?=\s|$|[^0-9])|inch\b|in\b)|\bSFF\b", re.I), "2.5in"),
+    (re.compile(r"\b3\.5\s*(?:\"(?=\s|$|[^0-9])|inch\b|in\b)|\bLFF\b", re.I), "3.5in"),
     (re.compile(r"\bM\.2\s*22(?:80|30|110)\b|\b22(?:80|30|110)\b", re.I), "M.2 {0}"),
     (re.compile(r"\bLow\s*Profile\b|\bLP\b|\bHalf-Height\b", re.I), "LP PCIe"),
     (re.compile(r"\bFull\s*Height\b|\bFH\b(?![A-Z])", re.I), "FH PCIe"),
@@ -63,14 +63,20 @@ def extract_size(desc: str) -> str | None:
             continue
         val = float(m.group(1))
         # Sanity bounds
-        if unit == "TB" and (val < 0.001 or val > 1000): continue
-        if unit == "GB" and (val < 1 or val > 1_000_000): continue
-        # Format: trim trailing .0 from TB
-        if unit == "TB" and val == int(val):
-            return f"{int(val)}TB"
+        if unit == "TB" and (val < 0.001 or val > 1000):
+            continue
+        if unit == "GB" and (val < 1 or val > 1_000_000):
+            continue
+        if unit == "MB" and (val < 1 or val > 10_000_000):
+            continue
+        # Round to marketing sizes — vendors quote raw byte-derived capacities
+        # like 120.03 GB (= 128.04 GB binary) or 480.1 GB. Snap to nearest int
+        # for GB/MB; keep decimals for TB only.
         if unit == "TB":
+            if val == int(val):
+                return f"{int(val)}TB"
             return f"{val}TB"
-        return f"{int(val)}{unit}"
+        return f"{int(round(val))}{unit}"
     return None
 
 
@@ -130,6 +136,19 @@ def split(description: str) -> dict:
     }
     result["provenance"] = provenance
     return result
+
+
+def split_row(row: dict, text_columns: list[str]) -> dict:
+    """Run spec extraction across multiple text columns of a single row.
+
+    Vendors hide spec hints in Size, Notes, and Description columns. Running
+    the regex over a concatenated text blob catches all of them in one pass
+    while preserving the existing single-column `split()` behavior used in
+    BrokerBin/Brave consensus scoring.
+    """
+    parts = [str(row[c]) for c in text_columns if c in row and row[c]]
+    blob = " | ".join(parts)
+    return split(blob)
 
 
 def main() -> int:

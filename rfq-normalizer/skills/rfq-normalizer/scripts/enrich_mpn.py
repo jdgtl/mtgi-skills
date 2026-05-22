@@ -34,7 +34,25 @@ import sys
 from collections import Counter
 from typing import Any
 
+# Per-field policy:
+#   * MEDIUM_FLOOR (0.60) — auto-fill optional spec fields (interface,
+#     drive_type, form_factor, size). Tag with `tagged_low_confidence` when
+#     below CONFIDENCE_AUTO_ACCEPT. Web search caps at 0.85 so this floor is
+#     what actually applies in practice.
+#   * CONFIDENCE_AUTO_ACCEPT (0.90) — clean auto-fill, no tag.
+#   * Required fields and MPN swaps — ALWAYS confirm; never auto-apply.
 CONFIDENCE_AUTO_ACCEPT = 0.90
+MEDIUM_FLOOR = 0.60
+
+# Description-specific floor: we fill descriptions even when confidence is
+# below auto-accept, because a low-consensus seller-authored description is
+# still more useful than a blank cell. Annotated with a confidence tag so
+# the operator knows to verify.
+DESCRIPTION_FILL_FLOOR = 0.50
+
+# Web-tier floor — alias of MEDIUM_FLOOR for backward compatibility with
+# existing call sites. Both name the same threshold.
+WEB_FIELD_FILL_FLOOR = MEDIUM_FLOOR
 
 
 def _build_mpn_assessment(
@@ -60,18 +78,6 @@ def _build_mpn_assessment(
     if candidate_real_mpn:
         assessment["candidate_real_mpn"] = candidate_real_mpn
     return assessment
-
-# Description-specific floor: we fill descriptions even when confidence is
-# below auto-accept, because a low-consensus seller-authored description is
-# still more useful than a blank cell. Annotated with a confidence tag so
-# the operator knows to verify. Other fields stay gated at AUTO_ACCEPT.
-DESCRIPTION_FILL_FLOOR = 0.50
-
-# Web-tier floor — fields from tier_web_search may be filled in the
-# 0.60..AUTO_ACCEPT range with an [unverified — web consensus N%] tag.
-# Web data is noisier than BrokerBin so we cap individual confidences at
-# 0.85 inside tier_web_search and gate the fill here.
-WEB_FIELD_FILL_FLOOR = 0.60
 
 # Allow the brokerbin_client module to be imported when enrich_mpn.py is run
 # directly from anywhere — keeps Cowork happy with relative invocations.
@@ -247,6 +253,45 @@ _REAL_MPN_TOKEN_PATTERN = re.compile(r"\b([A-Z0-9][A-Z0-9\-]{7,})\b")
 _WEB_MFG_CONF_CAP = 0.85
 _WEB_DESC_CONF_CAP = 0.75
 
+# Tokens that look MPN-shaped but are actually interface specs, product
+# family names, or common words. Reject them as candidate_real_mpn matches.
+_CANDIDATE_REJECT_PATTERNS = (
+    re.compile(r"^SAS-\d+", re.I),
+    re.compile(r"^SATA-?\d*", re.I),
+    re.compile(r"^NVME?", re.I),
+    re.compile(r"^PCIE?", re.I),
+    re.compile(r"^\d+\s*GBPS", re.I),
+    re.compile(r"^\d+\s*GBE", re.I),
+    # Intel SSD family names ("D3-S4610", "DC-P4510") look MPN-shaped.
+    re.compile(r"^D[0-9]-S[0-9]+$", re.I),
+    re.compile(r"^DC-P[0-9]+$", re.I),
+)
+
+_CANDIDATE_REJECT_WORDS = {
+    "SPECIFICATIONS", "DATASHEET", "DOWNLOAD", "MANUFACTURER",
+    "ENTERPRISE", "PERFORMANCE", "COMPATIBLE",
+}
+
+
+def _is_valid_candidate_mpn(token: str) -> bool:
+    """Validate a candidate_real_mpn token from web search results.
+
+    Filters out interface specs (SAS-12GBPS), product family names (D3-S4610),
+    and common English words that happen to be ≥8 chars and ALL CAPS.
+    """
+    if not token or len(token) < 8:
+        return False
+    upper = token.upper()
+    # Must contain at least one digit AND one letter
+    if not any(c.isdigit() for c in upper) or not any(c.isalpha() for c in upper):
+        return False
+    if upper in _CANDIDATE_REJECT_WORDS:
+        return False
+    for pattern in _CANDIDATE_REJECT_PATTERNS:
+        if pattern.match(upper):
+            return False
+    return True
+
 
 def tier_web_search(mpn: str, vendor_manufacturer: str | None = None) -> dict[str, Any] | None:
     """Tier 3: Brave web search.
@@ -362,9 +407,13 @@ def tier_web_search(mpn: str, vendor_manufacturer: str | None = None) -> dict[st
 
     candidate_real_mpn: str | None = None
     if token_counts:
-        top_token, top_count = token_counts.most_common(1)[0]
-        if top_count >= 3:
-            candidate_real_mpn = top_token
+        # Walk the ranking until we find a token that passes validation.
+        for top_token, top_count in token_counts.most_common():
+            if top_count < 3:
+                break
+            if _is_valid_candidate_mpn(top_token):
+                candidate_real_mpn = top_token
+                break
 
     return {
         "source": "web_search",
@@ -665,6 +714,23 @@ def main() -> int:
         action="store_true",
         help="Bypass the persistent MPN cache (forces fresh API calls)",
     )
+    ap.add_argument(
+        "--results-jsonl",
+        default=None,
+        help="Stream one result per line to this JSONL file (resumable). When set, suppresses the aggregated stdout JSON list.",
+    )
+    ap.add_argument(
+        "--parallel",
+        type=int,
+        default=1,
+        help="Process N MPNs concurrently via a thread pool (safe up to ~10 per session vs Brave). Default 1.",
+    )
+    ap.add_argument(
+        "--budget-seconds",
+        type=float,
+        default=None,
+        help="Soft wall-time budget. When exceeded, stop submitting work and exit cleanly with whatever has streamed.",
+    )
     args = ap.parse_args()
 
     default_need = [f.strip() for f in args.need.split(",") if f.strip()]
@@ -684,6 +750,59 @@ def main() -> int:
 
     # Batch mode: keep a single process so rate limiters in each tier client persist.
     items = _load_batch(args.batch, default_need)
+
+    if args.results_jsonl:
+        out_path = args.results_jsonl
+        done_mpns = _read_completed_mpns(out_path)
+        items = [it for it in items if it["mpn"] not in done_mpns]
+        cache_hits = 0
+        results_count = len(done_mpns)
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        import threading
+
+        write_lock = threading.Lock()
+
+        def _process(item):
+            r = enrich(
+                item["mpn"],
+                item.get("need", default_need),
+                current_values=item.get("current"),
+                use_cache=use_cache,
+                vendor_manufacturer=item.get("vendor_manufacturer"),
+            )
+            r["mpn"] = item["mpn"]
+            return r
+
+        import time as _time
+        deadline = (_time.monotonic() + args.budget_seconds) if args.budget_seconds else None
+
+        with open(out_path, "a") as out_f, \
+             ThreadPoolExecutor(max_workers=max(1, args.parallel)) as pool:
+            futures = []
+            for it in items:
+                if deadline is not None and _time.monotonic() >= deadline:
+                    break
+                futures.append(pool.submit(_process, it))
+            for fut in as_completed(futures):
+                if deadline is not None and _time.monotonic() >= deadline:
+                    # Stop draining — let in-flight tasks finish naturally on pool exit
+                    break
+                r = fut.result()
+                if r.get("cache_status") in ("hit", "skipped", "miss_cached"):
+                    cache_hits += 1
+                with write_lock:
+                    out_f.write(json.dumps(r, default=str) + "\n")
+                    out_f.flush()
+                results_count += 1
+        json.dump(
+            {"count": results_count, "cache_hits": cache_hits,
+             "api_calls_saved": cache_hits, "output": out_path,
+             "resumed_skipped": len(done_mpns)},
+            sys.stdout, default=str, indent=2,
+        )
+        return 0
+
+    # Legacy single-blob output (when --results-jsonl is not set)
     results = []
     cache_hits = 0
     for item in items:
@@ -709,6 +828,31 @@ def main() -> int:
         indent=2,
     )
     return 0
+
+
+def _read_completed_mpns(path: str) -> set[str]:
+    """Return MPNs already present in a JSONL results file.
+
+    Reads each line as JSON and pulls the "mpn" field. Malformed lines are
+    skipped silently — they'll be overwritten when their MPN is re-enriched.
+    """
+    try:
+        with open(path) as f:
+            done: set[str] = set()
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    obj = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                m = obj.get("mpn")
+                if m:
+                    done.add(m)
+            return done
+    except FileNotFoundError:
+        return set()
 
 
 def _load_batch(path: str, default_need: list[str]) -> list[dict[str, Any]]:

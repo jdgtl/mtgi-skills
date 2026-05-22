@@ -2,7 +2,7 @@
 """Report credential and enrichment-tier configuration for rfq-normalizer.
 
 Run after install — or any time you suspect a tier isn't firing — to see
-where each credential is being read from (env / Keychain / file) and which
+where each credential is being read from (env / file / keyring) and which
 enrichment tiers are ready to run.
 
 Exit code: 0 if all required tiers are configured, 1 otherwise. Useful for

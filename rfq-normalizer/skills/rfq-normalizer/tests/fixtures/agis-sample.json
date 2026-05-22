@@ -1,0 +1,12 @@
+{
+  "headers": ["MPN", "Description", "Size", "Grade", "Quantity", "Bid Price", "Winning Bid", "Outcome"],
+  "rows": [
+    {"MPN": "INTEL SSDSC2BB012T6", "Description": "Intel DC S3500 1.2TB SATA SSD", "Size": "1.2 TB SATA", "Grade": "B", "Quantity": 5, "Bid Price": "85", "Winning Bid": "92", "Outcome": "won"},
+    {"MPN": "INTEL SSDSC2BB012T6", "Description": "Intel DC S3500 1.2TB SATA SSD", "Size": "1.2 TB SATA", "Grade": "B", "Quantity": 3, "Bid Price": "85", "Winning Bid": "92", "Outcome": "won"},
+    {"MPN": "ST12000NM006J",       "Description": "Seagate Exos 12TB SAS",       "Size": "12TB SAS-12GBPS", "Grade": "B", "Quantity": 4, "Bid Price": "120", "Winning Bid": "135", "Outcome": "won"},
+    {"MPN": "HUS726T6TALE6L4",     "Description": "WD/HGST 6TB SATA Enterprise","Size": "6 TB SATA", "Grade": "B", "Quantity": 10, "Bid Price": "55", "Winning Bid": "62", "Outcome": "lost"},
+    {"MPN": "HUS726T6TALE6L4",     "Description": "WD/HGST 6TB SATA Enterprise","Size": "6 TB SATA", "Grade": "B", "Quantity": 2, "Bid Price": "58", "Winning Bid": "62", "Outcome": "lost"},
+    {"MPN": "303-276-000B-02",     "Description": "Vendor-internal SKU",        "Size": "480.1 GB SSD", "Grade": "B", "Quantity": 1, "Bid Price": "30", "Winning Bid": "35", "Outcome": "won"},
+    {"MPN": "303-276-000b-02",     "Description": "Vendor-internal SKU",        "Size": "480.1 GB SSD", "Grade": "B", "Quantity": 1, "Bid Price": "30", "Winning Bid": "35", "Outcome": "won"}
+  ]
+}
