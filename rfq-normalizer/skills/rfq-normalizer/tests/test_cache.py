@@ -1,7 +1,5 @@
 import importlib
 import os
-import stat
-from pathlib import Path
 
 import cache
 

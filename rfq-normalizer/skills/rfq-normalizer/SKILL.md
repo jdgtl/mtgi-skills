@@ -156,7 +156,7 @@ Tell the user: "Upload `<input>-normalized.xlsx` to MTGI via /rfqs/new. The prov
 
 ## Setup (one-time)
 
-On a fresh install, run `/rfq-setup`. It installs the `keyring` Python package, then walks you through entering BrokerBin credentials and stores them in the OS-native secure store (macOS Keychain / Windows Credential Manager / Linux Secret Service). They persist across Claude restarts and machine reboots.
+On a fresh install, run `/rfq-setup`. It writes credentials to a chmod-600 file at `<workspace>/.rfq-normalizer.env` (set `RFQ_WORKSPACE_DIR` or `RFQ_CREDS_FILE` to override). The workspace file is the only storage that survives a Cowork sandbox reset, so it is the primary persistence layer. On genuine local-Mac installs with a working OS keychain the keyring acts as an additional fallback when the file path isn't writable.
 
 Power users and CI can override stored values with env vars:
 
@@ -165,13 +165,18 @@ Power users and CI can override stored values with env vars:
 MTGI_API_URL=https://your-mtgi-instance.example.com
 MTGI_API_TOKEN=<token-from-MTGI-settings>
 
-# Override keyring — wins when set
+# Override the workspace file — wins when set
 BROKERBIN_API_KEY=<key>
 BROKERBIN_LOGIN=<username>
 BRAVE_SEARCH_API_KEY=<key>
+
+# Optional path overrides
+RFQ_WORKSPACE_DIR=/path/to/persistent/dir
+RFQ_CREDS_FILE=/path/to/.rfq-normalizer.env
+RFQ_CACHE_DIR=/path/to/.rfq-cache
 ```
 
-Inspect what's configured with `python scripts/check_setup.py`. Manage stored credentials directly with `python scripts/credentials.py {status|get|set|delete|backend} ...`.
+Inspect what's configured with `python scripts/check_setup.py`. Manage stored credentials directly with `python scripts/credentials.py {status|get|set|delete|backend} ...`. The `backend` subcommand prints the active storage location (file path or keyring backend name).
 
 ## Files in this skill
 
@@ -189,7 +194,8 @@ Inspect what's configured with `python scripts/check_setup.py`. Manage stored cr
 - `scripts/enrich_mpn.py` — tiered enrichment cascade with pre-flight skip + persistent cache
 - `scripts/brokerbin_client.py` — BrokerBin API v2 client (Bearer auth, rate-limited)
 - `scripts/brave_client.py` — Brave Search API v1 client (Tier 3 web search)
-- `scripts/credentials.py` — per-user credential store via the `keyring` library
+- `scripts/credentials.py` — per-user credential store; chmod-600 workspace file with env-var and keyring fallbacks
+- `scripts/workspace.py` — workspace-folder detection for persistent storage
 - `scripts/cache.py` — persistent MPN cache (60-day TTL); CLI for stats/clear/show
 - `scripts/write_template.py` — emit normalized xlsx + provenance
 - `scripts/check_setup.py` — report credential + tier configuration
