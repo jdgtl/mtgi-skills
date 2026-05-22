@@ -28,6 +28,7 @@ PATTERNS: list[tuple[re.Pattern, str, str]] = [
     (re.compile(r"^HUS[0-9].*", re.I),          "Western Digital",  "HGST/WD enterprise SATA (acquired by WD)"),
     (re.compile(r"^HUC[0-9].*", re.I),          "Western Digital",  "HGST/WD enterprise SAS"),
     (re.compile(r"^HUH[0-9].*", re.I),          "Western Digital",  "HGST/WD He-filled drives"),
+    (re.compile(r"^HUSMR[0-9].*|^HUSMM[0-9].*", re.I), "Western Digital", "HGST/WD enterprise NVMe (HUSMR/HUSMM)"),
     (re.compile(r"^HMS[0-9].*", re.I),          "Western Digital",  "HGST/WD mobile"),
     (re.compile(r"^WD[0-9].*", re.I),           "Western Digital",  "WD consumer drives"),
     (re.compile(r"^WUH[0-9].*|^WUS[0-9].*", re.I), "Western Digital", "WD enterprise (post-HGST rebrand)"),

@@ -65,3 +65,9 @@ def test_no_strip_for_unknown_prefix():
 def test_sandisk_sdlf_multi_letter():
     s = score_mpn("SDLFAAAR-019T-1HA1")
     assert s.has_known_prefix
+
+
+def test_hitachi_wd_enterprise_nvme():
+    s = score_mpn("HUSMR7676BDP3Y1")
+    assert s.has_known_prefix
+    assert s.suggested_manufacturer == "Western Digital"
