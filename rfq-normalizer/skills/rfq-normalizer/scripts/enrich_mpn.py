@@ -34,7 +34,25 @@ import sys
 from collections import Counter
 from typing import Any
 
+# Per-field policy:
+#   * MEDIUM_FLOOR (0.60) — auto-fill optional spec fields (interface,
+#     drive_type, form_factor, size). Tag with `tagged_low_confidence` when
+#     below CONFIDENCE_AUTO_ACCEPT. Web search caps at 0.85 so this floor is
+#     what actually applies in practice.
+#   * CONFIDENCE_AUTO_ACCEPT (0.90) — clean auto-fill, no tag.
+#   * Required fields and MPN swaps — ALWAYS confirm; never auto-apply.
 CONFIDENCE_AUTO_ACCEPT = 0.90
+MEDIUM_FLOOR = 0.60
+
+# Description-specific floor: we fill descriptions even when confidence is
+# below auto-accept, because a low-consensus seller-authored description is
+# still more useful than a blank cell. Annotated with a confidence tag so
+# the operator knows to verify.
+DESCRIPTION_FILL_FLOOR = 0.50
+
+# Web-tier floor — alias of MEDIUM_FLOOR for backward compatibility with
+# existing call sites. Both name the same threshold.
+WEB_FIELD_FILL_FLOOR = MEDIUM_FLOOR
 
 
 def _build_mpn_assessment(
@@ -60,18 +78,6 @@ def _build_mpn_assessment(
     if candidate_real_mpn:
         assessment["candidate_real_mpn"] = candidate_real_mpn
     return assessment
-
-# Description-specific floor: we fill descriptions even when confidence is
-# below auto-accept, because a low-consensus seller-authored description is
-# still more useful than a blank cell. Annotated with a confidence tag so
-# the operator knows to verify. Other fields stay gated at AUTO_ACCEPT.
-DESCRIPTION_FILL_FLOOR = 0.50
-
-# Web-tier floor — fields from tier_web_search may be filled in the
-# 0.60..AUTO_ACCEPT range with an [unverified — web consensus N%] tag.
-# Web data is noisier than BrokerBin so we cap individual confidences at
-# 0.85 inside tier_web_search and gate the fill here.
-WEB_FIELD_FILL_FLOOR = 0.60
 
 # Allow the brokerbin_client module to be imported when enrich_mpn.py is run
 # directly from anywhere — keeps Cowork happy with relative invocations.

@@ -100,7 +100,12 @@ For every row with any missing field, walk this cascade. **Pass `--current` with
 
 The skill also keeps a **persistent MPN cache** at `.cache/brokerbin-enrichment.json`. Cache hits return instantly with no API call. Cache TTL: 60 days for successful enrichment, 7 days for "no listings" misses. To inspect or clear: `python scripts/cache.py {stats|clear|show MPN}`.
 
-Stop as soon as a tier fills the gaps with high confidence (≥0.90).
+Stop as soon as a tier fills the gaps. Per-field policy:
+
+- **Optional spec fields** (size, interface, drive_type, form_factor): fill at confidence ≥ 0.60. Below 0.90, the cell is tagged `tagged_low_confidence` in provenance and gets an `[unverified — {source} consensus N%]` note inline. No per-cell prompting — the operator audits via the provenance log.
+- **Required fields** (MPN, Quantity, Condition) and **MPN swaps**: never auto-fill or auto-apply. Always confirm with the operator.
+
+The run summary reports the confidence mix (e.g., "133 medium, 8 low, 0 blocked") rather than blocking the pipeline.
 
 **Low-confidence descriptions are filled with an annotation.** When BrokerBin's seller-authored descriptions don't reach high consensus (modal description present in <90% of listings), the modal description is still written to the output with `[unverified — brokerbin consensus 59%]` appended. The provenance entry has `tagged_low_confidence: true`. The operator can edit or accept; a blank cell wouldn't have been more useful.
 
@@ -119,7 +124,7 @@ If no `candidate_real_mpn` is present, fall back to the original phrasing (no su
 
 Run `scripts/enrich_mpn.py <mpn>` which orchestrates this. Each tier returns `{value, source, confidence, raw_response}`.
 
-**Critical:** if confidence < 0.9 for any field, do NOT auto-fill. Surface to user with: "I found X via Y with Z% confidence — accept?"
+**Critical:** for required fields, ALWAYS surface to user with: "I found X via Y with Z% confidence — accept?" For optional spec fields, see the per-field policy above; auto-fill at ≥ 0.60 with provenance tagging.
 
 ### 6. Generate the output
 
