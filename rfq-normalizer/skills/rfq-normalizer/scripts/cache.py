@@ -21,9 +21,11 @@ The cache is a single JSON file. For 10k MPNs that's ~5MB on disk — fine.
 If it ever grows past that, swap for SQLite.
 """
 from __future__ import annotations
+import fcntl
 import json
 import os
 import time
+from contextlib import contextmanager
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any
@@ -49,6 +51,19 @@ def _cache_dir() -> Path:
 
 def _cache_path() -> Path:
     return _cache_dir() / CACHE_FILENAME
+
+
+@contextmanager
+def _cache_lock():
+    """Exclusive lock over the cache dir, so concurrent put() calls serialize."""
+    lock_path = _cache_dir() / ".lock"
+    # touch the lockfile
+    with open(lock_path, "a+") as fh:
+        try:
+            fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+            yield
+        finally:
+            fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
 
 
 def _normalize_key(mpn: str) -> str:
@@ -110,8 +125,9 @@ def put(
     `extras` is an optional free-form dict for tier-specific data that doesn't
     fit the flat fields/field_confidence shape — e.g. web_search's
     candidate_real_mpn. Old cache entries without `extras` read as {}.
+
+    Parallel-safe: serialized via an fcntl lock on the cache dir.
     """
-    data = _load_all()
     entry = {
         "cached_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "source": source,
@@ -121,8 +137,10 @@ def put(
     }
     if extras:
         entry["extras"] = extras
-    data[_normalize_key(mpn)] = entry
-    _save_all(data)
+    with _cache_lock():
+        data = _load_all()
+        data[_normalize_key(mpn)] = entry
+        _save_all(data)
 
 
 def stats() -> dict:

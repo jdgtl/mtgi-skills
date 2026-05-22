@@ -62,3 +62,42 @@ def test_put_then_get_roundtrip(monkeypatch, tmp_path):
     got = c.get("TEST-MPN-001")
     assert got is not None
     assert got["fields"]["size"] == "1.6TB"
+
+
+def _concurrent_writer(args):
+    """Top-level worker for test_concurrent_writers_do_not_drop_entries (must be picklable)."""
+    prefix, env_path = args
+    os.environ["RFQ_CACHE_DIR"] = str(env_path)
+    import importlib
+    import cache as c
+    importlib.reload(c)
+    for i in range(25):
+        c.put(
+            f"{prefix}-{i:03d}",
+            fields={"size": "1.6TB"},
+            field_confidence={"size": 0.9},
+            source="brokerbin",
+        )
+
+
+def test_concurrent_writers_do_not_drop_entries(monkeypatch, tmp_path):
+    """Stress: 8 workers each writing 25 distinct MPNs must produce 200 entries."""
+    import multiprocessing as mp
+
+    cache_dir = tmp_path / "concurrent"
+
+    procs = [
+        mp.Process(target=_concurrent_writer, args=((f"P{i}", cache_dir),))
+        for i in range(8)
+    ]
+    for p in procs:
+        p.start()
+    for p in procs:
+        p.join()
+
+    monkeypatch.setenv("RFQ_CACHE_DIR", str(cache_dir))
+    import importlib
+    import cache as c
+    importlib.reload(c)
+    data = c._load_all()
+    assert len(data) == 200, f"expected 200 entries, got {len(data)}"
