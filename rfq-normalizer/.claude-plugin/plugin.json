@@ -1,7 +1,7 @@
 {
   "name": "rfq-normalizer",
   "version": "0.7.0",
-  "description": "Normalize vendor RFQ spreadsheets into MTGI's canonical historical-import template. Splits free-text descriptions, consolidates duplicates, enriches missing fields via BrokerBin and Brave web search, and emits a per-cell provenance log.",
+  "description": "Normalize any vendor RFQ spreadsheet (xlsx/csv) into MTGI's canonical historical-import template. Auto-detects the header row and drops summary footers, splits free-text into five typed spec columns, preserves extra vendor columns, normalizes conditions, and enriches missing fields via BrokerBin and Brave web search — emitting a per-cell provenance log.",
   "author": {
     "name": "Jonathan Glass / DGTL for MTGI"
   },

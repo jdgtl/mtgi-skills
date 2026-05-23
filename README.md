@@ -12,9 +12,9 @@ This clones the marketplace privately to your local Claude install. You can then
 
 ## Available plugins
 
-| Plugin | Description |
-|---|---|
-| [`rfq-normalizer`](./rfq-normalizer) | Cleans up vendor RFQ spreadsheets and produces MTGI's historical-import xlsx + provenance log. Tier 2 BrokerBin enrichment, Tier 3 Brave web search, vendor-SKU detection. |
+| Plugin | Version | Description |
+|---|---|---|
+| [`rfq-normalizer`](./rfq-normalizer) | 0.7.0 | Cleans up any vendor RFQ spreadsheet (xlsx/csv) and produces MTGI's historical-import xlsx + provenance log. Auto-detects header rows / drops summary footers, splits free-text into five typed spec columns, preserves extra vendor columns, normalizes conditions, BrokerBin + Brave enrichment, vendor-SKU detection. |
 
 ## Install a specific plugin
 
@@ -37,15 +37,15 @@ This repo is the **source of truth** for every plugin it hosts. Edit files in pl
 
 To cut a release:
 
-1. Bump `version` in `<plugin>/.claude-plugin/plugin.json`.
+1. Bump `version` in `<plugin>/.claude-plugin/plugin.json` and add a `CHANGELOG.md` entry.
 2. Commit + push. Teammates installing via the marketplace (`claude plugin marketplace update mtgi-skills`) pick up the new version on their next update.
-3. (Optional) For Claude Cowork's "install from file" flow, build a `.plugin` zip:
+3. For Claude Cowork's "install from file" flow, build a `.plugin` zip:
 
    ```bash
    scripts/build-plugin.sh             # defaults to rfq-normalizer
    scripts/build-plugin.sh <plugin>    # any plugin in this repo
    ```
 
-   Output lands at `dist/<plugin>-<version>.plugin`. `dist/` is gitignored; distribute the artifact out-of-band.
+   Output lands at `dist/<plugin>-<version>.plugin`. `dist/` is **committed** so the artifacts have shareable GitHub links. Tag a matching GitHub release (e.g. `v0.7.0`) and attach the `.plugin` as a release asset — the release page is the cleanest link to hand to teammates.
 
-Visibility: **private**. Don't make this repo public without auditing every file for MTGI-internal references.
+Visibility: **public**. Git history and the committed `dist/` artifacts are world-readable — keep secrets and MTGI-internal references out of the tree.
