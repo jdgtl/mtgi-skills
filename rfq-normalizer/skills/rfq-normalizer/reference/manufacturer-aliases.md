@@ -10,10 +10,10 @@ flag low confidence on what's actually unanimous agreement.
 
 | Canonical | Variants collapsed |
 |---|---|
-| `Hitachi` | HGST, Hitachi GST, Hitachi Global Storage, Hitachi Global Storage Technologies, IBM/Hitachi |
-| `Western Digital` | WD |
+| `Western Digital` | WD, WDC, HGST, Hitachi, Hitachi GST, Hitachi Global Storage, Hitachi Global Storage Technologies, IBM/Hitachi |
+| `SanDisk` | Sandisk (casing) |
 | `Oracle` | Sun, Sun Microsystems, Sun/Oracle |
-| `HPE` | HP, Hewlett Packard, Hewlett-Packard, Hewlett Packard Enterprise, Compaq |
+| `HPE` | HP, HP Enterprise, Hewlett Packard, Hewlett-Packard, Hewlett Packard Enterprise, Compaq |
 | `Dell` | Dell EMC, Dell Technologies, EMC, EMC Corporation |
 | `IBM` | (kept as IBM) |
 | `Lenovo` | (kept as Lenovo) |
@@ -44,9 +44,12 @@ vendor-corroboration boost.
 
 Some choices favor operator usefulness over strict legal accuracy:
 
-- **`HGST → Hitachi` (not Western Digital).** WD acquired HGST in 2012, but
-  vendor inventory lists overwhelmingly still call HUS-prefixed drives "Hitachi"
-  because that's what the customer remembers. We follow the customer convention.
+- **`HGST → Western Digital` (and plain `Hitachi → Western Digital`).** WD
+  acquired Hitachi GST in 2012 and these drives ship as WD/Ultrastar. In the
+  ITAD context MTGI works in, every "Hitachi"-branded row is an HGST/Ultrastar
+  enterprise drive (e.g. HUA723020ALA640), so plain "Hitachi" maps to WD too.
+  Flip the single `"hitachi"` alias entry if you ever handle genuine non-drive
+  Hitachi parts.
 - **`Compaq → HPE` (not HP).** HP acquired Compaq in 2002, then split itself
   into HP and HPE in 2015. For server/storage equipment, HPE is the right
   modern reference.

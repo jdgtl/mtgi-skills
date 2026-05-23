@@ -6,6 +6,39 @@ are versioned independently and each entry notes which plugin it applies to.
 
 ## rfq-normalizer
 
+### 0.7.0 — 2026-05-23
+
+Eight fixes from a real validation run on a messy 1,403-drive vendor file
+("Evolution E-Cycle – Combined Drive Inventory"). Backward compatible: the
+historical/`sum` consolidation path (AGIS lot-bid use case) is unchanged.
+
+#### Added
+- `normalize_condition.py` — single entry point for condition strings: grade
+  letters, grade-suffix words ("B grade", "Grade B"), and condition words
+  ("Good"). Never guesses (Fix 7).
+- Parser auto-detects the real header row, skips title/banner rows, and reports
+  `header_row_index` / `skipped_banner_rows`; `--header-row N` override (Fix 1).
+- Parser drops trailing TOTAL/summary footer rows conservatively and reports
+  them as `dropped_summary_rows` (Fix 2).
+- Writer preserves extra/custom vendor columns (Serial, Tested, Source, …) after
+  the 13 canonical columns instead of dropping them (Fix 4).
+- Consolidation conflict detection: must-agree columns (price/capacity/specs)
+  trigger a whole-file fallback to single units with `fell_back_to_single_units`
+  + `conflicts` when any group disagrees (Fix 3).
+- Evolution-shaped test fixture and tests across all eight fixes.
+
+#### Changed
+- **Consolidation is now opt-in.** Live/count inventory files default to one row
+  per physical unit (Quantity = 1); consolidation runs only for historical bid
+  records (Fix 3, SKILL.md workflow + settings card).
+- Canonicalizer maps vendor drive-type spellings ("Hard Drive", "Hard Disk",
+  "Solid State Drive") to HDD/SSD (Fix 5).
+- Manufacturer aliases: HGST and Hitachi(-GST) variants → Western Digital
+  (operator decision; WD acquired Hitachi GST 2012); added `HP Enterprise`→HPE,
+  `Sandisk`→SanDisk, `WDC`→Western Digital (Fix 6).
+- Row-per-item detection weights the serial-column signal by fill rate so a
+  sparse serial column alone no longer forces `count` mode (Fix 8).
+
 ### 0.6.0 — 2026-05-23
 
 Promote five spec fields to first-class typed output columns so the MTGI intake

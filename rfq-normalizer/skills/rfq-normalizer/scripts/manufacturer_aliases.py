@@ -21,23 +21,29 @@ from __future__ import annotations
 
 # Each entry: variants → canonical. Lowercased keys; whitespace normalized.
 _ALIASES: dict[str, str] = {
-    # Western Digital / HGST / Hitachi storage (HGST was Hitachi GST, acquired by WD 2012)
-    # We keep "Hitachi" as canonical for HUS*/HUC*/HMS*/HUH* drives because that's
-    # how vendor inventory lists usually refer to them. WD-prefixed (WD*, WUH*, WUS*)
-    # are canonical WD.
-    "hgst":                       "Hitachi",
-    "hitachi gst":                "Hitachi",
-    "hitachi global storage":     "Hitachi",
-    "hitachi global storage technologies": "Hitachi",
-    "ibm/hitachi":                "Hitachi",
+    # Western Digital / HGST / Hitachi storage. WD acquired Hitachi GST in 2012
+    # and these drives now ship under WD/Ultrastar branding, so HGST and the
+    # Hitachi-GST variants all canonicalize to Western Digital. In this ITAD
+    # context plain "Hitachi"-branded drives are HGST/Ultrastar enterprise units
+    # (e.g. HUA723020ALA640), so plain "hitachi" maps to WD too — flip this one
+    # line if you ever handle genuine non-drive Hitachi parts.
+    "hgst":                       "Western Digital",
+    "hitachi":                    "Western Digital",
+    "hitachi gst":                "Western Digital",
+    "hitachi global storage":     "Western Digital",
+    "hitachi global storage technologies": "Western Digital",
+    "ibm/hitachi":                "Western Digital",
     "western digital":            "Western Digital",
     "wd":                         "Western Digital",
+    "wdc":                        "Western Digital",
+    "sandisk":                    "SanDisk",
     # Sun / Oracle (Oracle acquired Sun 2010)
     "sun":                        "Oracle",
     "sun microsystems":           "Oracle",
     "sun/oracle":                 "Oracle",
     # HP / HPE / Compaq (HPE split from HP 2015; HP acquired Compaq 2002)
     "hp":                         "HPE",
+    "hp enterprise":              "HPE",
     "hewlett packard":            "HPE",
     "hewlett-packard":            "HPE",
     "hewlett packard enterprise": "HPE",
@@ -107,7 +113,7 @@ def manufacturers_match(a: str | None, b: str | None) -> bool:
 
 if __name__ == "__main__":
     test_cases = [
-        ("HGST", "HITACHI"),                  # should match → Hitachi
+        ("HGST", "HITACHI"),                  # should match → Western Digital
         ("WESTERN DIGITAL", "WD"),            # should match → Western Digital
         ("Hewlett-Packard", "HPE"),           # should match → HPE
         ("Sun Microsystems", "Oracle"),       # should match → Oracle

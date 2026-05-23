@@ -78,9 +78,11 @@ def _canon_drive_type(value: str | None) -> tuple[str | None, bool]:
     if not value:
         return None, False
     u = value.strip().upper()
-    if "SSD" in u:  # also covers "U.2 SSD", "M.2 SSD"
+    # Vendor spellings — "Hard Drive" / "Solid State Drive" are common and don't
+    # contain the "HDD"/"SSD" substrings. Check these before the substring test.
+    if "SOLID STATE" in u or "SSD" in u:  # SSD substring also covers "U.2 SSD"
         return "SSD", False
-    if "HDD" in u:
+    if "HARD DRIVE" in u or "HARD DISK" in u or "HDD" in u:
         return "HDD", False
     if u in _NON_STORAGE_DRIVE_TYPES:
         return None, True

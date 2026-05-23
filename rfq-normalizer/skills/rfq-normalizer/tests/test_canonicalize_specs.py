@@ -65,6 +65,16 @@ def test_drive_type_blank_when_unknown():
     assert out["Drive Type"] is None
 
 
+def test_drive_type_vendor_spellings():
+    # The Evolution file wrote "Hard Drive" (87% of rows) and "Solid State Drive".
+    assert canonicalize({"drive_type": "Hard Drive"})["Drive Type"] == "HDD"
+    assert canonicalize({"drive_type": "Hard Disk"})["Drive Type"] == "HDD"
+    assert canonicalize({"drive_type": "Hard Disk Drive"})["Drive Type"] == "HDD"
+    assert canonicalize({"drive_type": "3.5\" HDD"})["Drive Type"] == "HDD"
+    assert canonicalize({"drive_type": "Solid State Drive"})["Drive Type"] == "SSD"
+    assert canonicalize({"drive_type": "Solid State"})["Drive Type"] == "SSD"
+
+
 # ─── Form Factor (2.5in | 3.5in | M.2 | U.2 | PCIe) ──────────────────────────
 
 def test_form_factor_inches():
@@ -102,7 +112,8 @@ def test_form_factor_drive_type_wins_over_noncanonical_ff():
 # ─── Manufacturer (universal, normalized, blank if unknown) ──────────────────
 
 def test_manufacturer_normalized_alias():
-    assert canonicalize({"manufacturer": "HGST", "drive_type": "HDD"})["Manufacturer"] == "Hitachi"
+    # v0.7: HGST canonicalizes to Western Digital (operator decision).
+    assert canonicalize({"manufacturer": "HGST", "drive_type": "HDD"})["Manufacturer"] == "Western Digital"
 
 
 def test_manufacturer_blank_when_absent():
