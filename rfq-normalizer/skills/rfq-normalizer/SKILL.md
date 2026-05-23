@@ -75,7 +75,7 @@ Present all four with sensible defaults pre-filled. After this single interactio
 
 Read `reference/template-schema.md` for the canonical output columns. For each MTGI field, find the best matching vendor column using:
 1. Exact header match (case-insensitive)
-2. Common alias patterns (e.g., `Part Number`, `P/N`, `SKU` → MPN)
+2. Common alias patterns (e.g., `Part Number`, `P/N`, `SKU` → MPN; a `Protocol` column feeds `Interface`)
 3. If unmatched, ask the user
 
 Show the user a mapping table and confirm before proceeding.
@@ -162,6 +162,20 @@ Run `scripts/enrich_mpn.py <mpn>` which orchestrates this. Each tier returns `{v
 
 **Critical:** for required fields, ALWAYS surface to user with: "I found X via Y with Z% confidence — accept?" For optional spec fields, see the per-field policy above; auto-fill at ≥ 0.60 with provenance tagging.
 
+### 5b. Canonicalize spec columns
+
+Before writing the output, run each row's enriched specs through `scripts/canonicalize_specs.py`. The extraction and enrichment tiers produce *rich* internal spec values (e.g. `drive_type='U.2 SSD'`, `interface='PCIe x4 NVMe'`, `form_factor='M.2 2280'`) that power consensus voting — but the MTGI intake wizard only maps the **constrained canonical values** to typed columns. This step collapses them:
+
+- `size` → **Capacity** (verbatim clean string, e.g. `1.92TB`)
+- `interface` → **Interface** — one of `SATA` / `SAS` / `NVMe` (priority NVMe > SAS > SATA; other buses blank)
+- `drive_type` → **Drive Type** — one of `SSD` / `HDD` (qualifiers stripped)
+- `form_factor` → **Form Factor** — one of `2.5in` / `3.5in` / `M.2` / `U.2` / `PCIe` (U.2/M.2 derived from the drive-type signal)
+- `manufacturer` → **Manufacturer** — canonical brand (via `manufacturer_aliases`), blank if unknown, **populated for every part type**
+
+**Storage-domain gate:** when the row is a non-storage part (NIC, switch, HBA, RAID controller, RAM, CPU, GPU), the four storage spec columns are blanked automatically; `Manufacturer` is kept. The script carries provenance forward for all five columns — including a `normalized_from` note when a value was collapsed/derived, and a blank-reason note when the gate fired. Merge its `_provenance` into the row under the output headers so the provenance log covers the five typed columns.
+
+Call it per row (internal keys + `_provenance` in, output headers out) or in bulk via stdin `{"rows":[...]}`. Pass-through columns (MPN, Quantity, …) are preserved. Any other vendor columns you emit are fine — the wizard captures them as `custom_fields`; do **not** rename them to the canonical headers.
+
 ### 6. Generate the output
 
 Run `scripts/write_template.py`. This produces two files:
@@ -211,6 +225,7 @@ Inspect what's configured with `python scripts/check_setup.py`. Manage stored cr
 - `scripts/analyze_columns.py` — fill rates + row-per-item detection + live-vs-historical hint
 - `scripts/consolidate_duplicates.py` — group by exact MPN; mode='sum' or mode='count'
 - `scripts/split_description.py` — description → spec columns (regex, free)
+- `scripts/canonicalize_specs.py` — collapse rich internal specs → the 5 typed output columns; storage-domain gating + provenance
 - `scripts/normalize_grade.py` — A/B/C/D grade letters → MTGI condition enum
 - `scripts/mpn_patterns.py` — score MPNs against known manufacturer prefixes (flags vendor SKUs)
 - `scripts/manufacturer_aliases.py` — collapse HGST/Hitachi, Compaq/HPE, etc. for clean consensus

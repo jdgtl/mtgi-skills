@@ -8,9 +8,9 @@ Input (stdin):
           "MPN": "...", "Quantity": 12, "Bid Price (USD)": 412.50,
           "Condition": "new", "Description": "...", "Outcome": "won",
           "Outcome Date": "2026-04-08", "Winning Bid (USD)": 412.50,
-          "Size": "1.6TB", "Interface": "SATA", "Drive Type": "SSD",
-          "Form Factor": "2.5in",
-          "_provenance": {"Size": {"source": "regex", "confidence": 0.95}, ...}
+          "Capacity": "1.6TB", "Interface": "SATA", "Drive Type": "SSD",
+          "Form Factor": "2.5in", "Manufacturer": "Intel",
+          "_provenance": {"Capacity": {"source": "regex", "confidence": 0.95}, ...}
         }
       ],
       "output_path": "vendor-normalized.xlsx"
@@ -35,10 +35,11 @@ COLUMNS = [
     ("Outcome",            False),
     ("Outcome Date",       False),
     ("Winning Bid (USD)",  False),
-    ("Size",               False),
+    ("Capacity",           False),
     ("Interface",          False),
     ("Drive Type",         False),
     ("Form Factor",        False),
+    ("Manufacturer",       False),
 ]
 
 REQUIRED_FILL = {"argb": "FF0D9488", "font": "FFFFFFFF"}
@@ -64,7 +65,7 @@ def write(rows: list[dict], output_path: Path) -> None:
         cell.border = Border(bottom=Side(style="medium", color="FF0F766E"))
 
     # Column widths
-    widths = [22, 12, 16, 18, 36, 22, 14, 18, 12, 18, 14, 14]
+    widths = [22, 12, 16, 18, 36, 22, 14, 18, 12, 18, 14, 14, 16]
     for i, w in enumerate(widths, start=1):
         ws.column_dimensions[ws.cell(row=1, column=i).column_letter].width = w
 

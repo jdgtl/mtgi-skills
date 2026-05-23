@@ -12,12 +12,17 @@ The output xlsx must have these columns in this order. Required columns are mark
 | 6 | `Outcome` | optional | enum | See `outcome-mapping.md` |
 | 7 | `Outcome Date` | optional | date | `YYYY-MM-DD` preferred |
 | 8 | `Winning Bid (USD)` | optional | currency | Per-unit USD price for whoever won |
-| 9 | `Size` | optional | text | e.g. `1.6TB`, `32GB`, `480GB` |
-| 10 | `Interface` | optional | text | e.g. `SATA`, `SAS`, `NVMe`, `PCIe Gen4 x4` |
-| 11 | `Drive Type` | optional | text | e.g. `SSD`, `HDD`, `M.2`, `U.2`, `NIC`, `Switch` |
-| 12 | `Form Factor` | optional | text | e.g. `2.5in`, `3.5in`, `M.2 2280`, `LP PCIe` |
+| 9 | `Capacity` | optional | enum-ish | Clean human string, uppercase unit, no spaces. Decimal-TB (1TB = 1000GB). e.g. `1.6TB`, `960GB`, `480GB`, `30GB` |
+| 10 | `Interface` | optional | enum | **Exactly one of** `SATA`, `SAS`, `NVMe`. Derived from a `Protocol` column when present. Other buses (PCIe/GbE/FC) are not storage interfaces → blank. |
+| 11 | `Drive Type` | optional | enum | **Exactly one of** `SSD`, `HDD`. Strip qualifiers (`U.2 SSD` → `SSD`). Non-storage classes → blank. |
+| 12 | `Form Factor` | optional | enum | **One of** `2.5in`, `3.5in`, `M.2`, `U.2`, `PCIe`. Normalize variants (`2.5"`/`2.5 inch` → `2.5in`; `M.2 2280` → `M.2`; `LP PCIe`/add-in card → `PCIe`). |
+| 13 | `Manufacturer` | optional | text | Canonical brand spelling, trimmed, single spaces (Intel, Samsung, Toshiba, Micron, Seagate, HGST, Western Digital, Dell, Kioxia, SK Hynix). Blank if unknown — never guessed. Applies to **all** parts. |
 
-Columns 9–12 are NOT in the original MTGI template (which has columns 1–8). They are added by this skill because splitting them out is more useful than keeping a single free-text description. The MTGI wizard's column mapper will let the user map them through as optional fields on import, or ignore them.
+Columns 9–13 are emitted by this skill so the MTGI intake wizard can route them into **first-class typed columns** on `rfq_lines` (rather than the generic `custom_fields` JSONB bucket). Headers and values must match this table exactly, or the wizard falls back to `custom_fields`.
+
+Any *other* vendor field this skill emits (Serial, Location, R2 Designation, UID, Notes, Protocol, etc.) is fine — the wizard captures it as `custom_fields`. Do **not** rename those extra columns to the canonical headers above.
+
+**Storage-domain gating.** Columns 9–12 are storage specs (SSD/HDD domain). For non-storage part types (NIC, switch, HBA, RAID controller, RAM, CPU, GPU) these are left blank — the canonicalization step (`scripts/canonicalize_specs.py`) enforces this. `Manufacturer` (col 13) is universal and is populated regardless of part type.
 
 ## Header-row formatting
 
