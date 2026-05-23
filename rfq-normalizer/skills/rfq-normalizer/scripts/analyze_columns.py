@@ -129,25 +129,43 @@ def analyze(headers: list[str], rows: list[dict]) -> ColumnAnalysis:
     bid_price_col = _match_first(BID_PRICE_PATTERNS, headers)
     outcome_col = _match_first(OUTCOME_PATTERNS, headers)
 
-    # Row-per-item detection: serial column present AND unique per row AND no qty column
+    # Row-per-item detection. A sparse serial column must NOT be decisive on its
+    # own (uniqueness is measured over populated cells, so a 7%-filled serial can
+    # look "unique per row"). Weight the serial signal by fill rate, and also
+    # treat a plain inventory list (no qty, no bid/outcome) as row-per-item.
+    SERIAL_FILL_FLOOR = 0.50
     serial_stat = next((s for s in column_stats if s.name == serial_col), None)
-    is_row_per_item = (
+    serial_signal = (
         serial_col is not None
-        and qty_col is None
         and serial_stat is not None
         and serial_stat.looks_unique_per_row
+        and serial_stat.fill_rate >= SERIAL_FILL_FLOOR
     )
+    # Live vs historical detection: no bid/outcome → live (parts being offered).
+    is_historical = bid_price_col is not None or outcome_col is not None
+    suggested_rfq_mode = "historical" if is_historical else "live"
+
+    # Plain inventory list: no quantity column and no bid/outcome columns → each
+    # row is one physical unit being inventoried, not an aggregated bid line.
+    plain_inventory_signal = qty_col is None and not is_historical
+
+    is_row_per_item = qty_col is None and (serial_signal or plain_inventory_signal)
     suggested_consolidation = "count" if is_row_per_item else "sum"
 
     if is_row_per_item:
+        if serial_signal:
+            reason = (
+                f"column '{serial_col}' is unique per row and substantially filled "
+                f"({serial_stat.fill_rate:.0%}), and no quantity column is present"
+            )
+        else:
+            reason = (
+                "no quantity column and no bid/outcome columns — this is a plain "
+                "inventory list"
+            )
         warnings.append(
-            f"Detected ROW-PER-ITEM layout (column '{serial_col}' is unique per row "
-            f"and no quantity column present). Each row will be counted as 1 unit."
+            f"Detected ROW-PER-ITEM layout ({reason}). Each row will be counted as 1 unit."
         )
-
-    # Live vs historical detection: no bid/outcome → live (parts being offered, not yet bid)
-    is_historical = bid_price_col is not None or outcome_col is not None
-    suggested_rfq_mode = "historical" if is_historical else "live"
 
     if not is_historical:
         warnings.append(

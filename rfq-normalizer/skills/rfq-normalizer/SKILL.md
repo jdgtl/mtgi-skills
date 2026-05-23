@@ -40,12 +40,18 @@ Do not proceed with normalization on an unconfigured plugin — BrokerBin enrich
 
 ### 1. Parse the vendor file
 
-Run `scripts/parse_vendor.py <input>`. This returns raw rows + column headers. Show the user:
+Run `scripts/parse_vendor.py <input>`. The parser auto-detects the real header row (vendor sheets often have title/banner rows above it) and drops trailing TOTAL/summary footers so they never become bogus line items. It returns raw rows + column headers plus:
+- `header_row_index` — the 1-based row the header was found on
+- `skipped_banner_rows` — banner text discarded above the header
+- `dropped_summary_rows` — aggregate/footer rows excluded (with their text)
+
+Show the user:
 - Row count
-- Detected column headers
+- Detected column headers (and `header_row_index` if banners were skipped)
+- Any `dropped_summary_rows` (so a dropped TOTAL is visible, not silent)
 - A 3-row preview
 
-Confirm with the user that this matches what they expected before proceeding.
+If header detection guessed wrong, re-run with `--header-row N` (1-based). Confirm with the user that this matches what they expected before proceeding.
 
 ### 1b. Analyze the sheet structure
 
@@ -64,9 +70,9 @@ After analyze surfaces its warnings, ask the operator a **single** settings card
 
 | Setting | Default | Where the default comes from |
 |---|---|---|
-| Default Condition for the file | `used_good` | Detected from a `Grade` column; ask explicitly if no grade is present. |
+| Default Condition for the file | `used_good` | Detected from a `Grade`/`Condition`/`Health` column; ask explicitly if none is present. |
 | Outcome Date source | `filename` if a date is parseable from the input filename, else `ask`. | Parse `YYYY-MM-DD` or `M-D-YYYY` patterns from the input filename. |
-| Consolidation policy | `historical` if `analyze_columns` returned `suggested_rfq_mode='historical'`, else `live`. | step 1b output. |
+| Consolidation | **off** for `count`/`live` files (one row per physical unit, Quantity = 1); **on** only when `suggested_rfq_mode='historical'`. | step 1b output. |
 | Enrichment scope | `full` | `free-only` (regex + cache only), `top-N` (cap API calls), or `full` (run all configured tiers). |
 
 Present all four with sensible defaults pre-filled. After this single interaction, only ambiguous-merge prompts (step 3) and confirmations (vendor-SKU swaps in step 5) should require operator input.
@@ -95,22 +101,24 @@ if brand is not None:
 
 Only strips an allowlisted set of brand names (INTEL, TOSHIBA, HGST, WDC, SAMSUNG, MICRON, KIOXIA, SANDISK, SEAGATE). Unknown prefixes are passed through unchanged. The `brand` value should also be passed to `enrich_mpn.py --vendor-mfg` so BrokerBin consensus can corroborate.
 
-### 3. Consolidate duplicate rows
+### 3. Consolidate duplicate rows (opt-in)
 
-Run `scripts/consolidate_duplicates.py` with the `mode` and `rfq_mode` detected by `analyze_columns`:
+**Default: do NOT consolidate.** For `count`/`live` inventory files — where the "MPN" column is often a model-family name that repeats across capacities and prices — emit one normalized row per physical unit (Quantity = 1). Skip this step entirely unless consolidation was turned **on** in the settings card (historical bid records).
 
-- `mode='sum'` (default) — each row already has a Quantity column; sum the values
+When consolidation *is* requested, run `scripts/consolidate_duplicates.py` with the `mode` and `rfq_mode` detected by `analyze_columns`:
+
+- `mode='sum'` — each row already has a Quantity column; sum the values
 - `mode='count'` — each row is one physical item; count rows per MPN
-
-And, critically, pass `rfq_mode`:
-
 - `rfq_mode='live'` — group by (MPN, condition) only. For sourcing lists.
 - `rfq_mode='historical'` — group by (MPN, condition, bid_price, winning_bid, outcome). **Never merges distinct bid events** — preserves pricing history.
 
-`analyze_columns.py` already emits `suggested_rfq_mode` and the relevant column names (`bid_price_column`, `outcome_column`); pass them through.
+**Conflict fallback (whole-file).** Before merging, the script checks a set of must-agree columns (`Bid Price`, `Capacity`, `Interface`, `Drive Type`, `Form Factor` by default — pass `must_agree_cols` to override). If *any* group disagrees on one of them, consolidation is unsafe: the script returns **all rows as single units** (Quantity = 1) with `fell_back_to_single_units: true` and a `conflicts` list. Report that to the operator rather than merging conflicting data.
+
+`analyze_columns.py` emits `suggested_rfq_mode` and the relevant column names (`bid_price_column`, `outcome_column`); pass them through.
 
 Returns:
-- `consolidated[]` — one row per unique key
+- `consolidated[]` — one row per unique key (or single units when it fell back)
+- `fell_back_to_single_units`, `conflicts[]` — see above
 - `ambiguous_pairs[]` — MPNs differing only by case/whitespace
 - `qty_in`, `qty_out` — total quantity in vs out (must match — script raises if not)
 
@@ -122,11 +130,17 @@ Run `scripts/split_description.py` over each row, mining **all text columns** (t
 
 Each extracted value gets a `source: 'regex'` provenance entry. If the regex can't extract a field with high confidence, leave it blank and flag for enrichment.
 
-### 4b. Convert grade letters to MTGI conditions
+### 4b. Normalize the condition column
 
-If the vendor file has a `Grade` column with single letters (A+, A, B+, B, C, D, F) instead of a `Condition` column, run `scripts/normalize_grade.py`. See `reference/condition-mapping.md` for the mapping.
+If the vendor file expresses condition as a `Grade`, `Condition`, or `Health / Grade` column, run `scripts/normalize_condition.py` (`normalize_condition(raw)`). It is the single entry point covering all three forms vendors use:
 
-Many lot/refurb vendors use this convention. The Brass Valley HDD list is a typical example: every row has `Grade=B` which maps to `used_good`.
+- bare grade letters/numbers — `A+`, `B`, `3`
+- grade words with a "grade" token — `B grade`, `Grade B`
+- plain condition words — `Good`, `Refurb`, `Server Pull`
+
+It strips the "grade" token, tries `normalize_grade`, then falls back to the condition-word map in `reference/condition-mapping.md`, returning the canonical enum or `None` (never guesses — leave blank when unknown). `scripts/normalize_grade.py` remains the letter-only helper it delegates to.
+
+Many lot/refurb vendors use these conventions. The Evolution drive list mixed `B grade` and `Good`, both → `used_good`; the Brass Valley HDD list used `Grade=B` → `used_good`.
 
 ### 5. Enrich missing fields (tiered)
 
@@ -221,12 +235,13 @@ Inspect what's configured with `python scripts/check_setup.py`. Manage stored cr
 - `reference/description-patterns.md` — regex patterns for spec extraction
 - `reference/outcome-mapping.md` — vendor outcome strings → MTGI enum
 - `reference/condition-mapping.md` — vendor condition strings → MTGI enum
-- `scripts/parse_vendor.py` — read xlsx/csv into rows
-- `scripts/analyze_columns.py` — fill rates + row-per-item detection + live-vs-historical hint
-- `scripts/consolidate_duplicates.py` — group by exact MPN; mode='sum' or mode='count'
+- `scripts/parse_vendor.py` — read xlsx/csv into rows; auto-detect header row, skip banners, drop TOTAL/summary footers (`--header-row N` override)
+- `scripts/analyze_columns.py` — fill rates + row-per-item detection (serial signal weighted by fill rate) + live-vs-historical hint
+- `scripts/consolidate_duplicates.py` — group by exact MPN; mode='sum' or mode='count'; must-agree conflict detection with whole-file fallback to single units
 - `scripts/split_description.py` — description → spec columns (regex, free)
 - `scripts/canonicalize_specs.py` — collapse rich internal specs → the 5 typed output columns; storage-domain gating + provenance
 - `scripts/normalize_grade.py` — A/B/C/D grade letters → MTGI condition enum
+- `scripts/normalize_condition.py` — single entry point for condition: grade letters, "B grade" suffixes, and condition words
 - `scripts/mpn_patterns.py` — score MPNs against known manufacturer prefixes (flags vendor SKUs)
 - `scripts/manufacturer_aliases.py` — collapse HGST/Hitachi, Compaq/HPE, etc. for clean consensus
 - `scripts/enrich_mpn.py` — tiered enrichment cascade with pre-flight skip + persistent cache

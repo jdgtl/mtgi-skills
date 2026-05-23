@@ -22,7 +22,7 @@ unknown
 | `new` | `new`, `new sealed`, `sealed` |
 | `refurbished` | `refurb`, `refurbished`, `recertified`, `cpo` |
 | `used_like_new` | `used-a`, `used a`, `used like new` |
-| `used_good` | `used`, `pull`, `server pull`, `used good` |
+| `used_good` | `used`, `pull`, `server pull`, `used good`, `good` |
 | `used_fair` | `used fair` |
 | `for_parts` | `broken`, `defective`, `for parts`, `for_parts` |
 
@@ -42,6 +42,13 @@ lives in `scripts/normalize_grade.py`:
 
 If the vendor file has a `Grade` column but no `Condition`, run
 `normalize_grade(row.grade)` and put the result in the Condition column.
+
+**Prefer `scripts/normalize_condition.py` as the single entry point.** It handles
+bare grade letters, grade-suffix words ("B grade", "Grade B"), *and* the
+condition words in the table above — stripping the "grade" token, trying
+`normalize_grade`, then falling back to the word map. Returns the canonical enum
+or `None` (never guesses). Use it whether the source column is `Grade`,
+`Condition`, or `Health / Grade`.
 
 ## BrokerBin API v2 condition codes
 
