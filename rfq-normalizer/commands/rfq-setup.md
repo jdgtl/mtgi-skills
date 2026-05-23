@@ -34,7 +34,7 @@ so values survive Cowork sandbox resets.
 
    | Credential name | Label | Help text |
    |---|---|---|
-   | `brokerbin_api_key` | BrokerBin API key | Contact your BrokerBin account rep to provision (David Lewis: david@brokerbin.com). |
+   | `brokerbin_api_key` | BrokerBin API key | Contact your BrokerBin account rep to provision. |
    | `brokerbin_login` | BrokerBin login (username) | Your BrokerBin account username. Some accounts require this in addition to the API key. |
    | `brave_search_api_key` | Brave Search API key | Sign up at https://api.search.brave.com/app/signup (free tier: 2000 queries/month). |
 

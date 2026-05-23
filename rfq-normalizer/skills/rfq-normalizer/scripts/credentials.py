@@ -41,7 +41,7 @@ CREDENTIAL_SCHEMA: dict[str, dict[str, str]] = {
     "brokerbin_api_key": {
         "env": "BROKERBIN_API_KEY",
         "label": "BrokerBin API key",
-        "help": "Contact your BrokerBin account rep to provision (David Lewis: david@brokerbin.com).",
+        "help": "Contact your BrokerBin account rep to provision.",
     },
     "brokerbin_login": {
         "env": "BROKERBIN_LOGIN",
