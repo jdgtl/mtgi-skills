@@ -27,7 +27,7 @@ MTGI team members who receive vendor RFQs in arbitrary formats (different column
 1. Drop the `.plugin` file into Claude Cowork — Settings → Plugins → Install from file.
 2. Run `/rfq-setup` once to install Python dependencies and configure credentials.
 3. The setup command walks you through entering:
-   - BrokerBin API key + login (contact David Lewis at david@brokerbin.com to provision)
+   - BrokerBin API key + login (contact your BrokerBin account rep to provision)
    - Brave Search API key (free tier 2000/mo at https://api.search.brave.com/app/signup)
 
 Credentials are stored in the OS-native secure store (macOS Keychain, Windows Credential Manager, or Linux Secret Service) and persist across restarts and reboots.

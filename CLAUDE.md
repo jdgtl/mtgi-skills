@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is the `mtgi-skills` Claude Cowork plugin marketplace **and** the source of truth for the plugins it hosts. Edit files under `<plugin>/` directly — there is no upstream mirror.
 
-The marketplace itself is declared in `.claude-plugin/marketplace.json`. Each plugin lives at `<plugin-name>/` and is referenced by relative `source` in that file. Visibility is **private**; audit before making public.
+The marketplace itself is declared in `.claude-plugin/marketplace.json`. Each plugin lives at `<plugin-name>/` and is referenced by relative `source` in that file. Visibility is **public** (made public 2026-05-23) — anything committed, including git history and the `dist/` artifacts, is world-readable, so keep secrets out of the tree.
 
 ## Release flow
 
