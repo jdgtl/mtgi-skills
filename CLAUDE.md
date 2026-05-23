@@ -14,7 +14,7 @@ When the user asks to "cut a release" or "publish a new version":
 
 1. Bump `version` in `<plugin>/.claude-plugin/plugin.json`.
 2. Commit + push. Marketplace consumers pick up on their next `claude plugin marketplace update mtgi-skills`.
-3. For Cowork's "install from file" path, run `scripts/build-plugin.sh [plugin]` to produce `dist/<plugin>-<version>.plugin`. `dist/` is gitignored.
+3. For Cowork's "install from file" path, run `scripts/build-plugin.sh [plugin]` to produce `dist/<plugin>-<version>.plugin`. `dist/` is committed to the repo so the built artifacts have shareable GitHub links (e.g. send someone the raw URL of `dist/<plugin>-<version>.plugin` to install). Commit the new artifact alongside the version bump.
 
 `scripts/build-plugin.sh` zips the plugin tree, reads the version from `plugin.json` via inline `python3`, and excludes `.DS_Store`, `__pycache__`, `*.pyc`, `*.pyo`, `.cache/`, and `examples/` from the artifact.
 
