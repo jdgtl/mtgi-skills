@@ -124,6 +124,81 @@ def write(rows: list[dict], output_path: Path) -> None:
     wb.save(output_path)
 
 
+# ── Needs-review report (v0.8 Change 5) ──────────────────────────────────────
+
+# Core columns enrichment targets. The first three apply to every part; the
+# storage specs only apply to storage parts (blanked-by-gate rows are skipped).
+ALWAYS_CORE = ["MPN", "Manufacturer", "Condition"]
+STORAGE_CORE = ["Capacity", "Interface", "Drive Type", "Form Factor"]
+CORE_COLUMNS = ALWAYS_CORE + STORAGE_CORE
+
+
+def _is_empty(v) -> bool:
+    return v is None or (isinstance(v, str) and not v.strip())
+
+
+def needs_review(rows: list[dict]) -> list[dict]:
+    """Return one entry per row that still has a blank core column, a
+    low-confidence core value, or an unresolved MPN. Storage specs that were
+    intentionally blanked for a non-storage part (provenance note) don't count.
+    """
+    out: list[dict] = []
+    for i, row in enumerate(rows, start=1):
+        prov = row.get("_provenance") or {}
+        missing: list[str] = []
+        low_conf: list[str] = []
+        for col in CORE_COLUMNS:
+            col_prov = prov.get(col) or {}
+            note = str(col_prov.get("note") or "").lower()
+            if col in STORAGE_CORE and "non-storage" in note:
+                continue  # intentionally blank — not a gap
+            if _is_empty(row.get(col)):
+                missing.append(col)
+            elif col_prov.get("tagged_low_confidence"):
+                low_conf.append(col)
+        candidate = row.get("_candidate_real_mpn")
+        unresolved_mpn = bool(candidate) or bool(row.get("_mpn_unresolved"))
+        if missing or low_conf or unresolved_mpn:
+            out.append({
+                "row": i,
+                "MPN": row.get("MPN"),
+                "Manufacturer": row.get("Manufacturer"),
+                "missing_fields": missing,
+                "low_confidence_fields": low_conf,
+                "candidate_real_mpn": candidate,
+                "unresolved_mpn": unresolved_mpn,
+            })
+    return out
+
+
+def review_summary(rows: list[dict], review: list[dict]) -> str:
+    blank = sum(1 for r in review if r["missing_fields"] or r["low_confidence_fields"])
+    unresolved = sum(1 for r in review if r["unresolved_mpn"])
+    return (f"{len(review)} of {len(rows)} rows need review "
+            f"({blank} with blank/low-confidence specs, {unresolved} unresolved MPNs).")
+
+
+def write_needs_review_csv(review: list[dict], path: Path) -> None:
+    import csv
+    with path.open("w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["row", "MPN", "Manufacturer", "missing_fields",
+                    "low_confidence_fields", "candidate_real_mpn"])
+        for r in review:
+            w.writerow([
+                r["row"], r["MPN"] or "", r["Manufacturer"] or "",
+                "; ".join(r["missing_fields"]),
+                "; ".join(r["low_confidence_fields"]),
+                r["candidate_real_mpn"] or "",
+            ])
+
+
+def _needs_review_path(output_path: Path) -> Path:
+    stem = output_path.stem
+    base = stem[:-len("-normalized")] if stem.endswith("-normalized") else stem
+    return output_path.with_name(f"{base}-needs-review.csv")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--input", default=None, help="JSON file (default: stdin)")
@@ -144,7 +219,20 @@ def main() -> int:
     with prov_path.open("w") as f:
         json.dump(provenance, f, indent=2, default=str)
 
-    print(json.dumps({"xlsx": str(output_path), "provenance": str(prov_path)}))
+    # Needs-review report — rows with blank/low-confidence core columns or an
+    # unresolved MPN. Always written (header-only when nothing needs review).
+    review = needs_review(rows)
+    review_path = _needs_review_path(output_path)
+    write_needs_review_csv(review, review_path)
+    summary = review_summary(rows, review)
+
+    print(json.dumps({
+        "xlsx": str(output_path),
+        "provenance": str(prov_path),
+        "needs_review": str(review_path),
+        "needs_review_count": len(review),
+        "summary": summary,
+    }))
     return 0
 
 

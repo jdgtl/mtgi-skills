@@ -38,20 +38,35 @@ except ImportError:
 
 
 CREDENTIAL_SCHEMA: dict[str, dict[str, str]] = {
-    "brokerbin_api_key": {
-        "env": "BROKERBIN_API_KEY",
-        "label": "BrokerBin API key",
-        "help": "Contact your BrokerBin account rep to provision.",
+    "ebay_app_id": {
+        "env": "EBAY_APP_ID",
+        "label": "eBay App ID (Client ID)",
+        "help": "eBay developer program → your production application keyset. https://developer.ebay.com/my/keys",
     },
-    "brokerbin_login": {
-        "env": "BROKERBIN_LOGIN",
-        "label": "BrokerBin login (username)",
-        "help": "Your BrokerBin account username. Some accounts require this in addition to the API key.",
+    "ebay_cert_id": {
+        "env": "EBAY_CERT_ID",
+        "label": "eBay Cert ID (Client Secret)",
+        "help": "eBay developer program → the Cert ID from the same keyset as the App ID.",
     },
     "brave_search_api_key": {
         "env": "BRAVE_SEARCH_API_KEY",
         "label": "Brave Search API key",
         "help": "Sign up at https://api.search.brave.com/app/signup (free tier: 2000 queries/month).",
+    },
+    # Deprecated as of v0.8.0 — BrokerBin was sunset as an enrichment source.
+    # Kept in the schema (back-compat) so existing stored values still resolve
+    # and `delete` works; no longer prompted for or required by check_setup.
+    "brokerbin_api_key": {
+        "env": "BROKERBIN_API_KEY",
+        "label": "BrokerBin API key (deprecated)",
+        "help": "Deprecated in v0.8.0 — no longer used for enrichment.",
+        "deprecated": "true",
+    },
+    "brokerbin_login": {
+        "env": "BROKERBIN_LOGIN",
+        "label": "BrokerBin login (deprecated)",
+        "help": "Deprecated in v0.8.0 — no longer used for enrichment.",
+        "deprecated": "true",
     },
 }
 
@@ -202,16 +217,17 @@ def status() -> dict[str, dict]:
     file_values = _file_read_all()
     for name, schema in CREDENTIAL_SCHEMA.items():
         label = schema["label"]
+        deprecated = schema.get("deprecated") == "true"
         if os.environ.get(schema["env"]):
-            out[name] = {"label": label, "source": "env", "set": True}
+            out[name] = {"label": label, "source": "env", "set": True, "deprecated": deprecated}
             continue
         if file_values.get(schema["env"]):
-            out[name] = {"label": label, "source": "file", "set": True}
+            out[name] = {"label": label, "source": "file", "set": True, "deprecated": deprecated}
             continue
         if _keyring_get(name):
-            out[name] = {"label": label, "source": "keyring", "set": True}
+            out[name] = {"label": label, "source": "keyring", "set": True, "deprecated": deprecated}
         else:
-            out[name] = {"label": label, "source": None, "set": False}
+            out[name] = {"label": label, "source": None, "set": False, "deprecated": deprecated}
     return out
 
 

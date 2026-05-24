@@ -28,27 +28,36 @@ def main() -> int:
 
     print("Credential status:")
     for info in cred_status.values():
+        if info.get("deprecated"):
+            continue  # deprecated creds (e.g. BrokerBin) are no longer reported
         source = info["source"] or "not configured"
-        print(f"  {_tick(info['set'])} {info['label']:30s} — {source}")
+        label = info["label"]
+        print(f"  {_tick(info['set'])} {label:34s} — {source}")
     print()
 
-    bb_ready = cred_status.get("brokerbin_api_key", {}).get("set", False)
+    ebay_ready = (
+        cred_status.get("ebay_app_id", {}).get("set", False)
+        and cred_status.get("ebay_cert_id", {}).get("set", False)
+    )
     brave_ready = cred_status.get("brave_search_api_key", {}).get("set", False)
     mtgi_ready = bool(
         os.environ.get("MTGI_API_URL") and os.environ.get("MTGI_API_TOKEN")
     )
 
     print("Enrichment tier status:")
-    mtgi_detail = "configured" if mtgi_ready else "needs MTGI_API_URL + MTGI_API_TOKEN env vars"
-    bb_detail = "configured" if bb_ready else "run /rfq-setup to add BrokerBin credentials"
+    mtgi_detail = "configured" if mtgi_ready else "optional — set MTGI_API_URL + MTGI_API_TOKEN to enable"
+    ebay_detail = "configured" if ebay_ready else "run /rfq-setup to add EBAY_APP_ID + EBAY_CERT_ID"
     brave_detail = "configured" if brave_ready else "run /rfq-setup to add Brave Search key"
-    print(f"  {_tick(mtgi_ready)} Tier 1: MTGI catalog       — {mtgi_detail}")
-    print(f"  {_tick(bb_ready)} Tier 2: BrokerBin           — {bb_detail}")
-    print(f"  {_tick(brave_ready)} Tier 3: Brave web search   — {brave_detail}")
+    print(f"  {_tick(mtgi_ready)} MTGI catalog (optional)  — {mtgi_detail}")
+    print(f"  {_tick(ebay_ready)} eBay Browse API          — {ebay_detail}")
+    print(f"  {_tick(brave_ready)} Brave web search         — {brave_detail}")
     print()
 
-    if not (bb_ready and brave_ready):
-        print("To configure missing credentials, run: claude /rfq-setup")
+    # Local tier (vendor columns + regex + cache) always works. Enrichment of
+    # missing fields needs at least one of eBay / Brave configured.
+    if not (ebay_ready or brave_ready):
+        print("No enrichment tier configured — only local regex/cache will run. "
+              "Run /rfq-setup to add eBay and/or Brave credentials.")
         return 1
     return 0
 

@@ -26,4 +26,4 @@ When `consolidate_duplicates.py` returns `ambiguous_pairs`, present each one to 
 ## Edge cases
 
 - **Three+ variants of the same MPN** — present all at once, ask user to pick one canonical form.
-- **MPN looks like it might be a vendor SKU not a real MPN** (e.g., contains the vendor's name/codes) — flag to user: "This looks like a vendor SKU. Should I look up the actual manufacturer MPN via BrokerBin?"
+- **MPN looks like it might be a vendor SKU not a real MPN** (e.g., contains the vendor's name/codes) — flag to user: "This looks like a vendor SKU. Should I look up the actual manufacturer MPN via eBay/web search?"

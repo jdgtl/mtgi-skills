@@ -1,6 +1,6 @@
 ---
 name: rfq-setup
-description: Configure credentials for the rfq-normalizer skill (BrokerBin + Brave Search). Run once per workspace.
+description: Configure credentials for the rfq-normalizer skill (eBay Browse + Brave Search). Run once per workspace.
 ---
 
 Walk the user through entering credentials for each enrichment tier the
@@ -34,11 +34,11 @@ so values survive Cowork sandbox resets.
 
    | Credential name | Label | Help text |
    |---|---|---|
-   | `brokerbin_api_key` | BrokerBin API key | Contact your BrokerBin account rep to provision. |
-   | `brokerbin_login` | BrokerBin login (username) | Your BrokerBin account username. Some accounts require this in addition to the API key. |
+   | `ebay_app_id` | eBay App ID (Client ID) | eBay developer program → your production application keyset: https://developer.ebay.com/my/keys |
+   | `ebay_cert_id` | eBay Cert ID (Client Secret) | The Cert ID from the same keyset as the App ID. |
    | `brave_search_api_key` | Brave Search API key | Sign up at https://api.search.brave.com/app/signup (free tier: 2000 queries/month). |
 
-   Skipped prompts save nothing — the tier silently disables rather than failing.
+   Skipped prompts save nothing — the tier silently disables rather than failing. The eBay keyset must be a **Browse API** application keyset (client-credentials / guest access); the Sell API store account cannot search the marketplace. BrokerBin is no longer used (sunset in v0.8.0); if old `brokerbin_*` values are present they're ignored.
 
 3. Save each entered value:
 
@@ -60,7 +60,7 @@ so values survive Cowork sandbox resets.
 5. Smoke-test any keys that were configured:
 
    ```bash
-   python "${CLAUDE_PLUGIN_ROOT}/skills/rfq-normalizer/scripts/brokerbin_client.py" --test-connection HUS726060ALA640
+   python "${CLAUDE_PLUGIN_ROOT}/skills/rfq-normalizer/scripts/ebay_browse_client.py" --test-connection ST9300603SS
    python "${CLAUDE_PLUGIN_ROOT}/skills/rfq-normalizer/scripts/brave_client.py" --test-connection "test"
    ```
 
@@ -68,7 +68,7 @@ so values survive Cowork sandbox resets.
 
 ## Notes for the agent
 
-- **Per-user accounts.** BrokerBin appears to provision per-user. Don't suggest sharing a key.
+- **eBay Browse keyset.** Needs an application keyset (App ID + Cert ID) with Browse API access; the client uses OAuth2 client-credentials (no user-consent redirect). The Sell API store account will not work for marketplace search.
 - **File location.** `python credentials.py backend` shows the active backend (file path or keyring backend name). Useful for diagnosing why a value isn't being read.
 - **Plaintext credentials.** The workspace env file is plaintext; that's acceptable for an internal tool but document it and keep the file out of any synced/shared folder.
 - **Env-var overrides.** If a user has set the corresponding env var (e.g. `BROKERBIN_API_KEY`) the credentials script will return that and skip the file — useful for dev workflows.

@@ -1,8 +1,8 @@
 # Manufacturer Aliases
 
 `scripts/manufacturer_aliases.py` collapses naming variants and acquisitions
-into a single canonical name. This is critical for BrokerBin consensus:
-without it, a part that everyone agrees is HGST/WD enterprise storage
+into a single canonical name. This is critical for enrichment consensus (eBay
+listings, web search): without it, a part that everyone agrees is HGST/WD enterprise storage
 might split votes 50/50 between "HITACHI" and "WESTERN DIGITAL" and we'd
 flag low confidence on what's actually unanimous agreement.
 
@@ -57,7 +57,7 @@ Some choices favor operator usefulness over strict legal accuracy:
   server/storage parts this is the right consolidation.
 - **`Solidigm → Intel`.** SK Hynix acquired Intel's NAND business in 2021 as
   Solidigm. Drives with Intel SSDPED-style MPNs still trace cleanly to "Intel"
-  in BrokerBin listings; we follow that. Revisit if this stops being true.
+  in marketplace listings; we follow that. Revisit if this stops being true.
 
 ## Adding new aliases
 
