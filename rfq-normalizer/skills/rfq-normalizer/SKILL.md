@@ -211,6 +211,17 @@ The canonical mapping itself:
 
 Call it per row (internal keys + `_provenance` in, output headers out) or in bulk via stdin `{"rows":[...]}`. Pass-through columns (MPN, Quantity, …) are preserved. Any other vendor columns you emit are fine — the wizard captures them as `custom_fields`; do **not** rename them to the canonical headers.
 
+### 5c. Compose a fallback Description (optional)
+
+If a row has no human-written vendor description, run `scripts/compose_description.py` (`fill_description(row)`) to build one from the confirmed canonical fields — e.g. `Western Digital 6TB HDD SATA 3.5in`. Rules it enforces (so this stays inside never-invent):
+
+- **Fill-blank-only.** A real vendor description is never overwritten; only composed when the human text is empty.
+- **Audit tag preserved.** The `(vendor MPN: …)` suffix from step 2b is split off and re-appended, so a composed row reads `… specs … (vendor MPN: …)`.
+- **Needs ≥2 confirmed fields**, drawn only from already-resolved/cited columns (Manufacturer, Capacity, Drive Type, Interface, Form Factor; Speed appended as `N RPM` when present). Fewer than 2 → left blank.
+- Composed values are tagged `source: composed` in provenance, distinct from sourced spec values.
+
+This is a fallback for human readability — the MTGI wizard maps the five typed columns directly, so Description isn't the primary spec carrier.
+
 ### 6. Generate the output
 
 Run `scripts/write_template.py`. This produces three files:
@@ -260,6 +271,7 @@ Inspect what's configured with `python scripts/check_setup.py`. Manage stored cr
 - `scripts/enrich_engine.py` — **decoder-first enrichment engine**: `enrich_row(brand, model, known)` + part-number decoders, Brave fallback, self-building SKU cache
 - `scripts/split_description.py` — description → spec hints (regex, free); supplements `known`
 - `scripts/canonicalize_specs.py` — collapse engine specs → the 5 typed output columns; format bridging + storage-domain gating + provenance
+- `scripts/compose_description.py` — fallback Description from confirmed specs (fill-blank-only; preserves vendor text + audit tag)
 - `scripts/normalize_grade.py` — A/B/C/D grade letters → MTGI condition enum
 - `scripts/normalize_condition.py` — single entry point for condition: grade letters, "B grade" suffixes, and condition words
 - `scripts/mpn_patterns.py` — score MPNs against known manufacturer prefixes; `strip_brand_prefix`

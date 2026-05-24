@@ -6,6 +6,17 @@ are versioned independently and each entry notes which plugin it applies to.
 
 ## rfq-normalizer
 
+### 0.9.3 — 2026-05-24
+
+#### Added
+- `compose_description.py` — builds a fallback `Description` from confirmed
+  canonical specs (e.g. `"Western Digital 6TB HDD SATA 3.5in"`) when a row has
+  no human-written vendor description. Stays within never-invent: concatenates
+  only already-resolved/cited fields, **fill-blank-only** (never overwrites a
+  real vendor description), preserves the `(vendor MPN: …)` audit tag, requires
+  ≥2 confirmed fields, and tags composed values `source: composed` in
+  provenance. Wired as SKILL step 5c (after canonicalize, before write).
+
 ### 0.9.2 — 2026-05-23
 
 Packaging: migrate off the legacy `commands/` format Cowork warns about on install.
