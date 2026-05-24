@@ -1,6 +1,6 @@
 {
   "name": "rfq-normalizer",
-  "version": "0.9.1",
+  "version": "0.9.2",
   "description": "Normalize any vendor RFQ spreadsheet (xlsx/csv) into MTGI's canonical historical-import template. Auto-detects the header row and drops summary footers, extracts a clean MPN, splits free-text into five typed spec columns, preserves extra vendor columns, normalizes conditions, and fills drive specs with an offline part-number decoder engine (Brave web search as fallback) — emitting a per-cell provenance log and a needs-review report.",
   "author": {
     "name": "Jonathan Glass / DGTL for MTGI"

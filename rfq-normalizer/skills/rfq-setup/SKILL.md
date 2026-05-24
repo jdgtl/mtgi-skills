@@ -1,6 +1,7 @@
 ---
 name: rfq-setup
-description: Configure credentials for the rfq-normalizer skill (Brave Search; ICEcat optional). Run once per workspace.
+description: Configure credentials for the rfq-normalizer skill (Brave Search; ICEcat optional). Run once per workspace, typically via /rfq-setup.
+disable-model-invocation: true
 ---
 
 Walk the user through entering credentials for each enrichment tier the
@@ -27,7 +28,7 @@ so values survive Cowork sandbox resets.
 
    Output is JSON keyed by credential name with `source` (`env` / `file` /
    `keyring` / `null`) and `set` (bool). Summarize for the user in plain
-   language — "BrokerBin API key: not configured", etc.
+   language — "Brave Search API key: not configured", etc.
 
 2. For each unset credential, prompt the user via AskUserQuestion or an
    elicitation form, using these labels and help text verbatim:
@@ -69,6 +70,6 @@ so values survive Cowork sandbox resets.
 - **Decoder-first.** The enrichment engine decodes specs from the part number offline; most rows resolve with no credentials. Brave only backstops type/interface/form on rows the decoders can't resolve.
 - **File location.** `python credentials.py backend` shows the active backend (file path or keyring backend name). Useful for diagnosing why a value isn't being read.
 - **Plaintext credentials.** The workspace env file is plaintext; that's acceptable for an internal tool but document it and keep the file out of any synced/shared folder.
-- **Env-var overrides.** If a user has set the corresponding env var (e.g. `BROKERBIN_API_KEY`) the credentials script will return that and skip the file — useful for dev workflows.
+- **Env-var overrides.** If a user has set the corresponding env var (e.g. `BRAVE_SEARCH_API_KEY`) the credentials script will return that and skip the file — useful for dev workflows.
 - **Resetting credentials.** `python credentials.py delete <name>` removes the value from both the file and the keyring.
 - **Headless / unsupported environments.** If no writable file path is found AND no keyring backend exists, `credentials.py set` raises a clear error pointing to the env-var workaround.

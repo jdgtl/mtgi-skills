@@ -6,6 +6,18 @@ are versioned independently and each entry notes which plugin it applies to.
 
 ## rfq-normalizer
 
+### 0.9.2 — 2026-05-23
+
+Packaging: migrate off the legacy `commands/` format Cowork warns about on install.
+
+#### Changed
+- `commands/rfq-setup.md` → `skills/rfq-setup/SKILL.md` (with
+  `disable-model-invocation: true` so it only runs when the user invokes
+  `/rfq-setup`, never auto-triggered). The `commands/` directory is removed, which
+  clears Cowork's "legacy commands/ format" install notice. `/rfq-setup` is
+  invoked exactly as before. Also refreshed two stale BrokerBin mentions in the
+  setup body.
+
 ### 0.9.1 — 2026-05-23
 
 Two fixes from validating v0.9.0 against the real Brass Valley bid list (158 rows).
