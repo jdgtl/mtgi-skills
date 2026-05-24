@@ -8,7 +8,7 @@ The output xlsx must have these columns in this order. Required columns are mark
 | 2 | `Quantity` | **YES** | integer | Whole number > 0 |
 | 3 | `Bid Price (USD)` | **YES** | currency | Per-unit USD price. Accepts `$1,234.56` or `1234.56`. |
 | 4 | `Condition` | optional | enum | See `condition-mapping.md` |
-| 5 | `Description` | optional | text | Free-text. Used as fallback when split columns are blank. |
+| 5 | `Description` | optional | text | Free-text. Vendor description if present; otherwise composed from confirmed specs (`compose_description.py`, fill-blank-only) with the `(vendor MPN: …)` audit tag appended. |
 | 6 | `Outcome` | optional | enum | See `outcome-mapping.md` |
 | 7 | `Outcome Date` | optional | date | `YYYY-MM-DD` preferred |
 | 8 | `Winning Bid (USD)` | optional | currency | Per-unit USD price for whoever won |
