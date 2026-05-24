@@ -25,7 +25,6 @@ A plugin directory mirrors the Claude Cowork plugin spec:
 ```
 <plugin>/
   .claude-plugin/plugin.json     # name, version, description
-  commands/<name>.md             # slash commands (frontmatter + body)
   skills/<skill>/SKILL.md        # skill definition (frontmatter + body)
   skills/<skill>/scripts/        # Python helpers the skill shells out to
   skills/<skill>/reference/      # static reference docs read by the skill
@@ -33,7 +32,9 @@ A plugin directory mirrors the Claude Cowork plugin spec:
   skills/<skill>/requirements.txt
 ```
 
-Scripts are invoked from the skill body with `${CLAUDE_PLUGIN_ROOT}/skills/<skill>/scripts/<name>.py`. Dependencies install via `pip install --user -r requirements.txt` — the plugin's setup command (e.g. `/rfq-setup`) runs this on first use.
+Everything is a **skill** under `skills/`. Cowork flags a top-level `commands/` directory as the legacy format, so user-invoked actions (like setup) are skills too — e.g. `skills/rfq-setup/SKILL.md` with `disable-model-invocation: true` so it only runs when the user calls `/rfq-setup`, never auto-triggered. Do not add a `commands/` directory.
+
+Scripts are invoked from the skill body with `${CLAUDE_PLUGIN_ROOT}/skills/<skill>/scripts/<name>.py`. Dependencies install via `pip install --user -r requirements.txt` — the `/rfq-setup` skill runs this on first use.
 
 ## rfq-normalizer specifics
 
