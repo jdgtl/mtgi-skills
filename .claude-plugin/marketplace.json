@@ -8,7 +8,7 @@
     {
       "name": "rfq-normalizer",
       "source": "./rfq-normalizer",
-      "description": "Normalize any vendor RFQ spreadsheet (xlsx/csv) into MTGI's canonical historical-import template. Auto-detects the header row and drops summary footers, splits free-text into five typed spec columns (capacity, interface, drive type, form factor, manufacturer), preserves extra vendor columns, normalizes conditions, and enriches missing fields via BrokerBin and Brave web search — with per-cell provenance and vendor-SKU swap detection."
+      "description": "Normalize any vendor RFQ spreadsheet (xlsx/csv) into MTGI's canonical historical-import template. Auto-detects the header row and drops summary footers, extracts a clean MPN, splits free-text into five typed spec columns (capacity, interface, drive type, form factor, manufacturer), preserves extra vendor columns, normalizes conditions, and enriches missing fields via the eBay Browse API and Brave web search — with per-cell provenance, a needs-review report, and vendor-SKU swap detection."
     }
   ]
 }

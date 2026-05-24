@@ -14,7 +14,7 @@ This clones the marketplace privately to your local Claude install. You can then
 
 | Plugin | Version | Description |
 |---|---|---|
-| [`rfq-normalizer`](./rfq-normalizer) | 0.7.0 | Cleans up any vendor RFQ spreadsheet (xlsx/csv) and produces MTGI's historical-import xlsx + provenance log. Auto-detects header rows / drops summary footers, splits free-text into five typed spec columns, preserves extra vendor columns, normalizes conditions, BrokerBin + Brave enrichment, vendor-SKU detection. |
+| [`rfq-normalizer`](./rfq-normalizer) | 0.8.0 | Cleans up any vendor RFQ spreadsheet (xlsx/csv) and produces MTGI's historical-import xlsx + provenance log + needs-review report. Auto-detects header rows / drops summary footers, extracts a clean MPN, splits free-text into five typed spec columns, preserves extra vendor columns, normalizes conditions, eBay Browse + Brave enrichment, vendor-SKU detection. |
 
 ## Install a specific plugin
 

@@ -6,6 +6,38 @@ are versioned independently and each entry notes which plugin it applies to.
 
 ## rfq-normalizer
 
+### 0.8.0 — 2026-05-23
+
+Enrichment overhaul: drop BrokerBin, add eBay, clean the MPN column, and make
+"fill every core column or list it for review" the goal. Backward compatible
+with v0.7 (header/footer detection, opt-in consolidation + conflict fallback,
+condition normalizer, extra-column passthrough, HGST→WD).
+
+#### Added
+- **eBay Browse API client** (`ebay_browse_client.py`) — OAuth2 client-credentials
+  (token cached ~2h), `item_summary/search` + `item/{id}` `localizedAspects`,
+  consensus per field (capacity/interface/drive_type/form_factor/manufacturer/
+  condition) with manufacturer-alias collapsing. Active listings only (Change 2).
+- **`extract_mpn.py`** — pulls the manufacturer part number out of a messy vendor
+  Model string, preferring a known-manufacturer prefix over OEM/spare numbers;
+  preserves the original, flags unresolved MPNs for review (Change 4).
+- **Needs-review report** — `write_template.py` emits `<input>-needs-review.csv`
+  (rows with blank/low-confidence core columns or unresolved MPNs) plus a
+  one-line run summary (Change 5).
+
+#### Changed
+- **Enrichment cascade reworked** (Change 3): tiers are now local/regex+cache →
+  MTGI catalog → eBay Browse → Brave web search → leave blank/needs-review. Fill
+  a core spec at consensus ≥ 0.60 with ≥2 corroborating listings (0.60–0.89
+  tagged low-confidence); required fields (MPN, Condition) are never best-guessed.
+- Vendor-SKU / `is_likely_vendor_sku` logic is now source-agnostic (eBay/web).
+
+#### Removed / deprecated
+- **BrokerBin sunset** (Change 1): removed from the enrichment cascade and from
+  required setup. `check_setup` reports eBay + Brave and exits 0 with those alone;
+  `credentials`/`rfq-setup` no longer demand BrokerBin keys (old values still
+  resolve). `brokerbin_client.py` stays in the repo but dormant.
+
 ### 0.7.0 — 2026-05-23
 
 Eight fixes from a real validation run on a messy 1,403-drive vendor file

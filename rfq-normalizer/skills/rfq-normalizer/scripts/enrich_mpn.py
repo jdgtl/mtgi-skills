@@ -6,7 +6,7 @@ first high-confidence result for each missing field. Always records provenance.
 
 Tiers (each is independently optional; skipped if not configured):
     1. MTGI catalog lookup    — MTGI_API_URL + MTGI_API_TOKEN env vars
-    2. BrokerBin API          — credentials via /rfq-setup or BROKERBIN_API_KEY
+    2. eBay Browse API        — credentials via /rfq-setup or EBAY_APP_ID/EBAY_CERT_ID
     3. Brave web search       — credentials via /rfq-setup or BRAVE_SEARCH_API_KEY
 
 Each tier returns: {value, source, confidence (0..1), raw_response}
@@ -14,13 +14,16 @@ Each tier returns: {value, source, confidence (0..1), raw_response}
 STATUS:
   Tier 1 (MTGI catalog)  — wired against documented contract; endpoint not yet
                            exposed by the app. Skipped if env unset.
-  Tier 2 (BrokerBin)     — IMPLEMENTED via brokerbin_client.py. Returns
-                           consensus description from top listings + derived
-                           specs.
+  Tier 2 (eBay Browse)   — IMPLEMENTED via ebay_browse_client.py. Consensus item
+                           aspects (capacity/interface/drive_type/form_factor/
+                           manufacturer/condition) across active listings.
   Tier 3 (Brave search)  — IMPLEMENTED via brave_client.py. Two queries per
                            MPN, dedupes results by URL, surfaces a
                            candidate_real_mpn when a single ≥8-char token
                            appears alongside the queried MPN in ≥3 titles.
+
+BrokerBin (old Tier 2) was sunset in v0.8.0; tier_brokerbin / brokerbin_client.py
+remain in the repo but dormant (not wired into TIERS).
 
 Usage:
     python enrich_mpn.py --mpn UCS-SD16TBKS4-EV [--need size,interface,drive_type,form_factor]
@@ -428,9 +431,41 @@ def tier_web_search(mpn: str, vendor_manufacturer: str | None = None) -> dict[st
     }
 
 
+def tier_ebay(mpn: str, vendor_manufacturer: str | None = None) -> dict[str, Any] | None:
+    """Tier 3: eBay Browse API (structured item aspects).
+
+    Replaces BrokerBin (sunset in v0.8.0). Returns consensus specs from active
+    listings' item aspects. `vendor_manufacturer` is accepted for a uniform tier
+    signature but not used (eBay search keys on the MPN). Returns None when eBay
+    isn't configured, so the tier is silently skipped.
+    """
+    try:
+        from ebay_browse_client import EbayBrowseClient
+    except ImportError as e:
+        return {"source": "ebay", "error": f"import failed: {e}", "fields": {}, "field_confidence": {}}
+
+    client = EbayBrowseClient.from_credentials()
+    if client is None:
+        return None  # tier skipped (no eBay app keyset)
+
+    try:
+        res = client.search_specs(mpn)
+    except Exception as e:  # never let a marketplace hiccup abort the cascade
+        return {"source": "ebay", "error": str(e), "fields": {}, "field_confidence": {}}
+
+    fields = res.get("fields", {})
+    return {
+        "source": "ebay",
+        "fields": fields,
+        "field_confidence": res.get("field_confidence", {}),
+        "raw_response": res.get("raw"),
+        "note": None if fields else "no_results",
+    }
+
+
 TIERS = [
     ("mtgi_catalog", tier_mtgi_catalog),
-    ("brokerbin",    tier_brokerbin),
+    ("ebay",         tier_ebay),
     ("web_search",   tier_web_search),
 ]
 
@@ -564,7 +599,7 @@ def enrich(
         if all(results[f] is not None for f in needed_fields):
             break
         # Tiers that take vendor_manufacturer accept it as a kwarg.
-        if name in ("brokerbin", "web_search"):
+        if name in ("ebay", "web_search"):
             out = fn(mpn, vendor_manufacturer=vendor_manufacturer)
         else:
             out = fn(mpn)
@@ -645,7 +680,7 @@ def enrich(
     for fname in needed_fields:
         if results[fname] is not None:
             continue
-        if accumulated_source.get(fname) != "web_search":
+        if accumulated_source.get(fname) not in ("web_search", "ebay"):
             continue
         conf = accumulated_conf.get(fname, 0)
         if conf < WEB_FIELD_FILL_FLOOR or conf >= CONFIDENCE_AUTO_ACCEPT:
@@ -653,25 +688,29 @@ def enrich(
         value = accumulated_fields.get(fname)
         if not value:
             continue
+        src = accumulated_source.get(fname, "web_search")
+        src_label = "eBay" if src == "ebay" else "web"
         results[fname] = value
         provenance[fname] = {
-            "source": "web_search",
+            "source": src,
             "confidence": round(conf, 3),
             "tagged_low_confidence": True,
-            "note": f"[unverified — web consensus {int(conf * 100)}%]",
+            "note": f"[unverified — {src_label} consensus {int(conf * 100)}%]",
         }
 
     # Vendor-SKU heuristic: if no tier found listings AND the MPN doesn't
     # match a known manufacturer prefix, surface that signal so the agent
     # can ask the operator for the real MPN. When web_search returned a
     # candidate_real_mpn, attach it so the agent can offer it explicitly.
-    bb_entry = next((e for e in raw_log if e.get("tier") == "brokerbin"), None)
-    bb_found_listings = bool(bb_entry) and bb_entry.get("note") != "no_listings"
+    ebay_entry = next((e for e in raw_log if e.get("tier") == "ebay"), None)
+    ebay_found_listings = (
+        bool(ebay_entry) and ebay_entry.get("note") != "no_results" and not ebay_entry.get("error")
+    )
     ws_entry = next((e for e in raw_log if e.get("tier") == "web_search"), None)
     ws_found_results = bool(ws_entry) and ws_entry.get("note") != "no_results"
     pattern_assessment = _build_mpn_assessment(
         mpn,
-        any_listings=bb_found_listings or ws_found_results,
+        any_listings=ebay_found_listings or ws_found_results,
         candidate_real_mpn=candidate_real_mpn,
     )
 

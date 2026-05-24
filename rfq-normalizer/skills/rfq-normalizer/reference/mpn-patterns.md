@@ -1,13 +1,13 @@
 # MPN Patterns & Vendor-SKU Detection
 
 When a vendor file gives you a "Model Number" that doesn't actually match
-the manufacturer's MPN format, you can't enrich it via BrokerBin — those
+the manufacturer's MPN format, enrichment can't resolve it — marketplace
 listings are keyed on real MPNs, not vendor-internal SKUs.
 
 `scripts/mpn_patterns.py` implements a two-signal heuristic:
 
 1. **Local prefix score** — does the MPN start with a known manufacturer prefix?
-2. **BrokerBin result** — did the API return any listings for this MPN?
+2. **Listing result** — did any enrichment source (eBay / web) return listings for this MPN?
 
 If both signals are negative → flag as `likely_vendor_sku` and ask the operator.
 
@@ -57,9 +57,9 @@ If both signals are negative → flag as `likely_vendor_sku` and ask the operato
 | `0.30` | No pattern matched → likely vendor SKU |
 | `0.10` – `0.20` | Disqualified (too short, too long, all-letter, all-digit) |
 
-`is_likely_vendor_sku(score, brokerbin_found_listings)` returns True only when
-BrokerBin found nothing AND the score is below 0.85. A real-but-rare MPN that
-BrokerBin happens to have listings for won't be flagged.
+`is_likely_vendor_sku(score, listings_found)` returns True only when no
+enrichment source found listings AND the score is below 0.85. A real-but-rare
+MPN that a source happens to have listings for won't be flagged.
 
 ## Adding more prefixes
 

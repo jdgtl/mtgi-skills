@@ -134,15 +134,15 @@ def score_mpn(mpn: str) -> MpnPatternScore:
     return MpnPatternScore(score=0.30, matched_pattern=None, suggested_manufacturer=None)
 
 
-def is_likely_vendor_sku(score: MpnPatternScore, brokerbin_found_listings: bool) -> bool:
-    """Combine the local pattern score with BrokerBin's actual result.
+def is_likely_vendor_sku(score: MpnPatternScore, listings_found: bool) -> bool:
+    """Combine the local pattern score with whether any enrichment source
+    (eBay / web) returned listings.
 
     Returns True only when both signals point the same way: the MPN doesn't
-    match a known manufacturer prefix AND BrokerBin couldn't find any listings
-    for it. A real-but-rare MPN that BrokerBin has won't be flagged; a
-    weird-looking MPN that BrokerBin does have listings for won't be flagged.
+    match a known manufacturer prefix AND no source could find any listings
+    for it. A real-but-rare MPN that a source has won't be flagged.
     """
-    if brokerbin_found_listings:
+    if listings_found:
         return False
     return score.score < 0.85
 

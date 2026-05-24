@@ -15,7 +15,7 @@ The user uploads a spreadsheet (xlsx or csv) and asks you to clean it up for MTG
 
 1. **Never invent values.** If a field is missing and you can't find it in the source data or via an enrichment lookup, leave it blank — never guess.
 2. **Exact MPN matches only when consolidating rows.** "WDC SN850" and "WDC-SN850" are NOT the same. If MPN strings differ by even a space or case, treat as separate lines and ask the user.
-3. **Cite every enriched value.** The provenance log must record where each filled-in value came from (regex, MTGI catalog, BrokerBin, or user-confirmed).
+3. **Cite every enriched value.** The provenance log must record where each filled-in value came from (regex, MTGI catalog, eBay, Brave, or user-confirmed).
 4. **Ask, don't assume, when in doubt.** Ambiguous descriptions, conflicting data, multiple potential merges — surface them to the user.
 
 ## Workflow
@@ -32,11 +32,11 @@ export RFQ_WORKSPACE_DIR=<absolute path to the persistent workspace folder>
 
 This is the authoritative location for the chmod-600 credentials file and the enrichment cache. Skip this step if `RFQ_WORKSPACE_DIR` is already set.
 
-Before parsing anything, run `python scripts/check_setup.py`. If BrokerBin credentials are missing (exit code 1), stop and tell the user:
+Before parsing anything, run `python scripts/check_setup.py`. It exits non-zero only when **no** enrichment tier (eBay or Brave) is configured. If so, tell the user:
 
-> The rfq-normalizer skill isn't set up yet. Run `/rfq-setup` to configure BrokerBin credentials, then re-run this skill.
+> The rfq-normalizer skill has no enrichment tier configured. Run `/rfq-setup` to add eBay Browse and/or Brave Search credentials, then re-run — otherwise only local regex/cache will run and most missing specs will land on the needs-review list.
 
-Do not proceed with normalization on an unconfigured plugin — BrokerBin enrichment is the difference between a useful normalized file and a sheet full of blanks. If the MTGI catalog tier is unconfigured but BrokerBin is set up, that's fine; continue (Tier 1 is optional).
+The local tier (vendor columns + regex + cache) always works, so you *can* proceed unconfigured, but enrichment is what fills the core columns. The MTGI catalog tier is optional; eBay Browse is the primary structured spec source (BrokerBin was sunset in v0.8.0).
 
 ### 1. Parse the vendor file
 
@@ -86,20 +86,23 @@ Read `reference/template-schema.md` for the canonical output columns. For each M
 
 Show the user a mapping table and confirm before proceeding.
 
-### 2b. Strip brand prefixes from MPNs
+### 2b. Extract a clean MPN
 
-Before consolidation, normalize each row's MPN. Vendors sometimes prepend the manufacturer to the MPN ("INTEL SSDSC2BB012T6") which breaks downstream scoring and lookups. Use `mpn_patterns.strip_brand_prefix(mpn)`:
+The vendor "Model"/part column mixes brand words, marketing/family names, OEM spare numbers, and the real part number — e.g. `Savvio 10K.3 (ST9300603SS)`, `MM1000FBFVR 605832-002 (ST91000640SS)`. The MPN column must be the **manufacturer part number only**. Run `scripts/extract_mpn.py` (`extract_mpn(model)`) on the mapped MPN/Model column:
 
 ```python
-from mpn_patterns import strip_brand_prefix
-cleaned, brand = strip_brand_prefix(row["MPN"])
-if brand is not None:
-    # Preserve the original vendor string in Description for audit
-    row["Description"] = f"{row.get('Description', '')} (vendor MPN: {row['MPN']})".strip()
-    row["MPN"] = cleaned
+from extract_mpn import extract_mpn
+r = extract_mpn(row["MPN"])
+# Always preserve the full original string for audit:
+row["Description"] = f"{row.get('Description', '')} (vendor MPN: {r['original']})".strip()
+row["MPN"] = r["mpn"]
+if not r["is_real_mpn"]:
+    # keep the cleaned best-effort string (MPN is required — never blank it),
+    # send the row to enrichment to resolve the real MPN, and flag for review.
+    row["_mpn_unresolved"] = True
 ```
 
-Only strips an allowlisted set of brand names (INTEL, TOSHIBA, HGST, WDC, SAMSUNG, MICRON, KIOXIA, SANDISK, SEAGATE). Unknown prefixes are passed through unchanged. The `brand` value should also be passed to `enrich_mpn.py --vendor-mfg` so BrokerBin consensus can corroborate.
+It tokenizes the string, drops brand/family words, scores each token with `mpn_patterns.score_mpn`, and prefers a token matching a known **manufacturer** prefix (Seagate `ST…`) over generic OEM/spare numbers. When no token is a real MPN (e.g. `DC S3500 Series`), it returns a cleaned best-effort string with `is_real_mpn=False` — enrichment then tries to resolve it, and any `candidate_real_mpn` is surfaced (never auto-swapped — see step 5's vendor-SKU rule).
 
 ### 3. Consolidate duplicate rows (opt-in)
 
@@ -144,37 +147,32 @@ Many lot/refurb vendors use these conventions. The Evolution drive list mixed `B
 
 ### 5. Enrich missing fields (tiered)
 
-For every row with any missing field, walk this cascade. **Pass `--current` with the fields the row already has filled** so the tier walk skips them entirely — every saved API call counts against the 50/day BrokerBin quota.
+**Goal: every row has all applicable core columns filled or on the needs-review list.** Core columns are `MPN`, `Manufacturer`, `Condition`, and the storage specs `Capacity`, `Interface`, `Drive Type`, `Form Factor` (storage specs stay blank for non-storage parts). For each row with any missing core field, walk the cascade below, driving enrichment **per missing column**. **Pass `--current` with the fields the row already has** so the walk skips them and conserves calls.
 
-**Pass `--vendor-mfg` with the manufacturer name from the vendor file** (e.g. `--vendor-mfg "Hitachi"`). When BrokerBin's modal manufacturer (after alias normalization — see `reference/manufacturer-aliases.md`) matches the vendor-supplied name, confidence is boosted to 0.93 (corroborated by two independent sources). Without this, listings that split between "HGST" and "Hitachi" or "Compaq" and "HPE" will be flagged as low-confidence even when they actually agree.
+| Tier | Source | Notes |
+|------|--------|-------|
+| 1 | **local** — vendor columns + regex (`split_description`) + cache | free; already fills most rows |
+| 2 | **MTGI catalog lookup** (optional, see Setup) | only if configured |
+| 3 | **eBay Browse API** | structured item aspects (capacity/interface/drive_type/form_factor/manufacturer/condition); consensus across active listings |
+| 4 | **Brave web search** | MPN resolution + cross-ref / spec confirmation (`site:ebay.com "{MPN}"` and general) |
+| 5 | **leave blank → needs-review** | never invent |
 
-The skill also keeps a **persistent MPN cache** at `.cache/brokerbin-enrichment.json`. Cache hits return instantly with no API call. Cache TTL: 60 days for successful enrichment, 7 days for "no listings" misses. To inspect or clear: `python scripts/cache.py {stats|clear|show MPN}`.
+Run `scripts/enrich_mpn.py <mpn>` (or `--batch`) which orchestrates tiers 1–4. BrokerBin was **sunset in v0.8.0** — it is not in the cascade. Stop as soon as a field is confirmed.
 
-Stop as soon as a tier fills the gaps. Per-field policy:
+The skill keeps a **persistent MPN cache** (workspace `.rfq-cache/`). Cache hits return instantly with no API call. TTL: 60 days for hits, 7 days for "no results" misses. Inspect/clear: `python scripts/cache.py {stats|clear|show MPN}`.
 
-- **Optional spec fields** (size, interface, drive_type, form_factor): fill at confidence ≥ 0.60. Below 0.90, the cell is tagged `tagged_low_confidence` in provenance and gets an `[unverified — {source} consensus N%]` note inline. No per-cell prompting — the operator audits via the provenance log.
-- **Required fields** (MPN, Quantity, Condition) and **MPN swaps**: never auto-fill or auto-apply. Always confirm with the operator.
+**Fill policy (reconciles with never-invent):**
 
-The run summary reports the confidence mix (e.g., "133 medium, 8 low, 0 blocked") rather than blocking the pipeline.
+- **Core spec fields** (capacity, interface, drive_type, form_factor, manufacturer): fill when consensus ≥ 0.60 with ≥2 corroborating listings. Between 0.60 and 0.89 the cell is tagged `tagged_low_confidence` in provenance with an `[unverified — {source} consensus N%]` note. Below 0.60 or no data → leave blank and it lands on the needs-review list.
+- **Required fields** (MPN, Condition) and **MPN swaps**: never best-guessed — confirm with the operator or leave for review.
 
-**Low-confidence descriptions are filled with an annotation.** When BrokerBin's seller-authored descriptions don't reach high consensus (modal description present in <90% of listings), the modal description is still written to the output with `[unverified — brokerbin consensus 59%]` appended. The provenance entry has `tagged_low_confidence: true`. The operator can edit or accept; a blank cell wouldn't have been more useful.
+Provenance must cite the source tier (`ebay`, `web_search`, `mtgi_catalog`, …) for every enriched value.
 
-**Vendor-SKU detection.** After the tier walk, `enrich_mpn.py` returns an `mpn_assessment` block with a pattern score (see `reference/mpn-patterns.md`). When the MPN doesn't match any known manufacturer prefix AND no tier found listings, `likely_vendor_sku: true` is set. When web search also returns a `candidate_real_mpn`, that token is attached to the assessment so you can offer it explicitly. Surface this to the operator:
+**Vendor-SKU / unresolved-MPN detection.** `enrich_mpn.py` returns an `mpn_assessment` block (see `reference/mpn-patterns.md`). When the MPN doesn't match any known manufacturer prefix AND no tier found listings, `likely_vendor_sku: true` is set; when web search surfaces a `candidate_real_mpn`, it's attached. Surface it — never auto-swap:
 
-> The MPN `PA33N3T8` doesn't match any known manufacturer prefix and BrokerBin returned no listings. Web search suggests the real manufacturer MPN may be `MZILS3T8HMLH` — should I use that as the MPN, keep the vendor SKU, or pause this row for manual review?
+> The MPN `PA33N3T8` doesn't match any known manufacturer prefix and no listings were found. Web search suggests the real manufacturer MPN may be `MZILS3T8HMLH` — use that, keep the vendor SKU, or pause this row for review?
 
-If no `candidate_real_mpn` is present, fall back to the original phrasing (no suggestion, just the SKU flag). Never auto-swap the MPN — always confirm with the operator. After confirmation, re-run enrichment with the swapped MPN as the input.
-
-| Tier | Source | Confidence | Cost |
-|------|--------|-----------|------|
-| 1 | **MTGI catalog lookup** (optional, see Setup) | high | free |
-| 2 | **BrokerBin API** | high | $$ |
-| 3 | **Brave web search** — catches vendor SKUs and OEM cross-refs BrokerBin misses | medium | free tier 2000/mo |
-| 4 | **Ask the user** | n/a | n/a |
-
-Run `scripts/enrich_mpn.py <mpn>` which orchestrates this. Each tier returns `{value, source, confidence, raw_response}`.
-
-**Critical:** for required fields, ALWAYS surface to user with: "I found X via Y with Z% confidence — accept?" For optional spec fields, see the per-field policy above; auto-fill at ≥ 0.60 with provenance tagging.
+After confirmation, re-run enrichment with the swapped MPN. Rows with an unresolved MPN go on the needs-review list (step 6) carrying any `candidate_real_mpn`.
 
 ### 5b. Canonicalize spec columns
 
@@ -192,18 +190,21 @@ Call it per row (internal keys + `_provenance` in, output headers out) or in bul
 
 ### 6. Generate the output
 
-Run `scripts/write_template.py`. This produces two files:
-- `<input>-normalized.xlsx` — matches the MTGI template exactly
+Run `scripts/write_template.py`. This produces three files:
+- `<input>-normalized.xlsx` — matches the MTGI template exactly (13 canonical columns + any preserved vendor extras)
 - `<input>-provenance.json` — per-cell provenance log
+- `<input>-needs-review.csv` — every row with a blank/low-confidence core column or an unresolved MPN: row #, MPN, Manufacturer, the missing/low-confidence fields, and any `candidate_real_mpn`
 
-Show the user:
-- Summary: N rows consolidated to M rows, P fields enriched
-- A small table of any rows still missing required fields
+The script prints a one-line `summary`, e.g. *"12 of 1403 rows need review (9 with blank/low-confidence specs, 3 unresolved MPNs)."* Show the user:
+- That summary plus N→M row counts and fields enriched
+- The needs-review path (and a few example rows if the list is short)
 - The output file path
+
+A fully-enriched file yields an empty needs-review report and a "0 rows need review" summary.
 
 ### 7. Hand-off
 
-Tell the user: "Upload `<input>-normalized.xlsx` to MTGI via /rfqs/new. The provenance log is at `<input>-provenance.json` if you need to audit any value."
+Tell the user: "Upload `<input>-normalized.xlsx` to MTGI via /rfqs/new. The provenance log is at `<input>-provenance.json`, and `<input>-needs-review.csv` lists the rows still needing attention."
 
 ## Setup (one-time)
 
@@ -217,8 +218,8 @@ MTGI_API_URL=https://your-mtgi-instance.example.com
 MTGI_API_TOKEN=<token-from-MTGI-settings>
 
 # Override the workspace file — wins when set
-BROKERBIN_API_KEY=<key>
-BROKERBIN_LOGIN=<username>
+EBAY_APP_ID=<app-id>          # eBay Browse API application keyset
+EBAY_CERT_ID=<cert-id>
 BRAVE_SEARCH_API_KEY=<key>
 
 # Optional path overrides
@@ -242,15 +243,17 @@ Inspect what's configured with `python scripts/check_setup.py`. Manage stored cr
 - `scripts/canonicalize_specs.py` — collapse rich internal specs → the 5 typed output columns; storage-domain gating + provenance
 - `scripts/normalize_grade.py` — A/B/C/D grade letters → MTGI condition enum
 - `scripts/normalize_condition.py` — single entry point for condition: grade letters, "B grade" suffixes, and condition words
+- `scripts/extract_mpn.py` — pull the manufacturer part number out of a messy vendor Model string (prefers known-mfg prefixes; flags unresolved)
 - `scripts/mpn_patterns.py` — score MPNs against known manufacturer prefixes (flags vendor SKUs)
-- `scripts/manufacturer_aliases.py` — collapse HGST/Hitachi, Compaq/HPE, etc. for clean consensus
-- `scripts/enrich_mpn.py` — tiered enrichment cascade with pre-flight skip + persistent cache
-- `scripts/brokerbin_client.py` — BrokerBin API v2 client (Bearer auth, rate-limited)
-- `scripts/brave_client.py` — Brave Search API v1 client (Tier 3 web search)
+- `scripts/manufacturer_aliases.py` — collapse HGST/Hitachi→WD, Compaq/HPE, etc. for clean consensus
+- `scripts/enrich_mpn.py` — tiered enrichment cascade (MTGI → eBay → Brave) with pre-flight skip + persistent cache
+- `scripts/ebay_browse_client.py` — eBay Browse API client (Tier 3 structured item aspects)
+- `scripts/brave_client.py` — Brave Search API v1 client (Tier 4 web search)
+- `scripts/brokerbin_client.py` — **deprecated (v0.8.0)** BrokerBin client, kept dormant (not wired into enrichment)
 - `scripts/credentials.py` — per-user credential store; chmod-600 workspace file with env-var and keyring fallbacks
 - `scripts/workspace.py` — workspace-folder detection for persistent storage
 - `scripts/cache.py` — persistent MPN cache (60-day TTL); CLI for stats/clear/show
-- `scripts/write_template.py` — emit normalized xlsx + provenance
+- `scripts/write_template.py` — emit normalized xlsx + provenance + needs-review report
 - `scripts/check_setup.py` — report credential + tier configuration
 - `prompts/extract-specs.md` — LLM fallback for descriptions regex can't parse
 - `prompts/review-merge.md` — phrasing for "should I merge these?" prompts

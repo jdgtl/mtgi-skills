@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 """BrokerBin Search API v2 client (Python port of src/lib/integrations/brokerbin/client.ts).
 
+DEPRECATED as of v0.8.0: BrokerBin was sunset as an enrichment source (replaced
+by the eBay Browse API). This module is kept in the repo but is no longer wired
+into the enrichment cascade or required by setup — retained so the integration
+can be revived if needed.
+
 Endpoints:
   GET /api/v2/part/search?query={mpn}&size={n}&priced={0|1}
   GET /api/v2/part/history/stats?query={mpn}
