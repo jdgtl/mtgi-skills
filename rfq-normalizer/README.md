@@ -8,13 +8,15 @@ MTGI team members who receive vendor RFQs in arbitrary formats (different column
 
 ## What it does
 
-1. Accepts any xlsx or csv vendor file
+1. Accepts any xlsx or csv vendor file — **auto-detects the real header row** below title/banner rows and **drops TOTAL/summary footers** so they never become bogus line items (`--header-row N` to override)
 2. Maps vendor columns to MTGI fields (auto-detects, asks when unclear)
-3. **Consolidates duplicate rows** — exact MPN matches summed; near-matches flagged for user review
-4. **Splits free-text descriptions** into structured spec columns (`size`, `interface`, `drive_type`, `form_factor`)
-5. **Enriches missing fields** via a tiered cascade: regex → MTGI catalog → BrokerBin → Brave web search → ask user
-6. **Surfaces vendor-internal SKUs** — when web search finds the real manufacturer MPN for a vendor's internal part number (e.g. `PA33N3T8` → `MZILS3T8HMLH`), it offers the swap explicitly
-7. Outputs a template-ready `.xlsx` plus a `provenance.json` audit log
+3. **Splits free-text descriptions** into five **typed spec columns** the MTGI wizard maps to first-class fields: `Capacity`, `Interface`, `Drive Type`, `Form Factor`, `Manufacturer`
+4. **Preserves extra vendor columns** (Serial, Tested, Source, …) so the wizard captures them as `custom_fields` instead of dropping them
+5. **Normalizes conditions** — grade letters, "B grade" suffixes, and condition words ("Good") → MTGI's condition enum
+6. **Consolidation is opt-in** — live/count inventory defaults to one row per physical unit; when consolidation runs, any same-spec price/capacity conflict safely reverts the whole file to single units
+7. **Enriches missing fields** via a tiered cascade: regex → MTGI catalog → BrokerBin → Brave web search → ask user
+8. **Surfaces vendor-internal SKUs** — when web search finds the real manufacturer MPN for a vendor's internal part number (e.g. `PA33N3T8` → `MZILS3T8HMLH`), it offers the swap explicitly
+9. Outputs a template-ready `.xlsx` plus a `provenance.json` audit log
 
 ## Hard rules
 
@@ -30,15 +32,15 @@ MTGI team members who receive vendor RFQs in arbitrary formats (different column
    - BrokerBin API key + login (contact your BrokerBin account rep to provision)
    - Brave Search API key (free tier 2000/mo at https://api.search.brave.com/app/signup)
 
-Credentials are stored in the OS-native secure store (macOS Keychain, Windows Credential Manager, or Linux Secret Service) and persist across restarts and reboots.
+Credentials are written to a chmod-600 workspace file (`<workspace>/.rfq-normalizer.env`), which is the only storage that survives a Cowork sandbox reset and so is the primary persistence layer. On local-Mac installs with a working keychain, the OS-native secure store (macOS Keychain, Windows Credential Manager, Linux Secret Service) acts as an additional fallback. Env vars override both.
 
 ## Build a .plugin file from source
 
 ```bash
-skills/rfq-normalizer/scripts/build-plugin.sh
+scripts/build-plugin.sh rfq-normalizer
 ```
 
-Produces `dist/rfq-normalizer-<version>.plugin` ready to install.
+Produces `dist/rfq-normalizer-<version>.plugin` ready to install. Released versions are also attached to [GitHub releases](https://github.com/jdgtl/mtgi-skills/releases) — download the `.plugin` from there.
 
 ## Usage
 
@@ -52,4 +54,4 @@ The skill walks through each step, asks for confirmation on ambiguous cases, and
 
 - Does NOT push data to MTGI directly — produces a clean xlsx that the user uploads via MTGI's existing wizard.
 - Does NOT replace MTGI's catalog-matching logic — exact/alias/fuzzy MPN resolution happens in the app on import.
-- Does NOT handle live RFQs — only historical backfills with bid + outcome data.
+- Handles both **live/count inventory lists** (one row per physical unit) and **historical backfills** with bid + outcome data.
