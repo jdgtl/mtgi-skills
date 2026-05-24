@@ -75,3 +75,13 @@ def test_csv_written(tmp_path):
 def test_needs_review_path_derives_from_normalized():
     from pathlib import Path
     assert _needs_review_path(Path("/x/vendor-normalized.xlsx")).name == "vendor-needs-review.csv"
+
+
+def test_engine_flag_triggers_review_and_columns():
+    # A fully-filled row with a KNOWN_CONFLICT flag still needs review (v0.9).
+    row = _full_row(_confidence="HIGH", _flags="KNOWN_CONFLICT(interface:known=SATA/dec=SAS)")
+    review = needs_review([row])
+    assert len(review) == 1
+    assert review[0]["_flags"].startswith("KNOWN_CONFLICT")
+    assert review[0]["_confidence"] == "HIGH"
+    assert review[0]["missing_fields"] == []

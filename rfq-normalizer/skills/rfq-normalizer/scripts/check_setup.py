@@ -35,29 +35,23 @@ def main() -> int:
         print(f"  {_tick(info['set'])} {label:34s} — {source}")
     print()
 
-    ebay_ready = (
-        cred_status.get("ebay_app_id", {}).get("set", False)
-        and cred_status.get("ebay_cert_id", {}).get("set", False)
-    )
     brave_ready = cred_status.get("brave_search_api_key", {}).get("set", False)
-    mtgi_ready = bool(
-        os.environ.get("MTGI_API_URL") and os.environ.get("MTGI_API_TOKEN")
-    )
+    icecat_ready = cred_status.get("icecat_token", {}).get("set", False)
 
     print("Enrichment tier status:")
-    mtgi_detail = "configured" if mtgi_ready else "optional — set MTGI_API_URL + MTGI_API_TOKEN to enable"
-    ebay_detail = "configured" if ebay_ready else "run /rfq-setup to add EBAY_APP_ID + EBAY_CERT_ID"
     brave_detail = "configured" if brave_ready else "run /rfq-setup to add Brave Search key"
-    print(f"  {_tick(mtgi_ready)} MTGI catalog (optional)  — {mtgi_detail}")
-    print(f"  {_tick(ebay_ready)} eBay Browse API          — {ebay_detail}")
+    icecat_detail = "configured" if icecat_ready else "optional — rarely useful on enterprise drives"
+    print(f"  ✓ Decoder engine          — always available (offline, free)")
     print(f"  {_tick(brave_ready)} Brave web search         — {brave_detail}")
+    print(f"  {_tick(icecat_ready)} ICEcat (optional)        — {icecat_detail}")
     print()
 
-    # Local tier (vendor columns + regex + cache) always works. Enrichment of
-    # missing fields needs at least one of eBay / Brave configured.
-    if not (ebay_ready or brave_ready):
-        print("No enrichment tier configured — only local regex/cache will run. "
-              "Run /rfq-setup to add eBay and/or Brave credentials.")
+    # The decoder engine resolves most rows with no credentials at all. Brave is
+    # the network fallback for type/interface/form on rows the decoders can't
+    # resolve; without it, those rows go to the needs-review list.
+    if not brave_ready:
+        print("Brave not configured — decoders still run, but unresolved rows can't use "
+              "the web fallback and will land on the needs-review list. Run /rfq-setup to add it.")
         return 1
     return 0
 

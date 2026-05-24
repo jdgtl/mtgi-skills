@@ -6,6 +6,41 @@ are versioned independently and each entry notes which plugin it applies to.
 
 ## rfq-normalizer
 
+### 0.9.0 — 2026-05-23
+
+Decoder-first enrichment. **Supersedes 0.8.0's eBay approach** — both eBay Browse
+and BrokerBin are dropped; enrichment is now a free, offline, deterministic
+part-number decoder engine with Brave web search as the only network fallback.
+Backward compatible with v0.7 (header/footer detection, opt-in consolidation +
+conflict fallback, condition normalizer, extra-column passthrough, HGST→WD).
+
+#### Added
+- **Decoder engine** (`enrich_engine.py`) with `enrich_row(brand, model, known)`:
+  part-number decoders for Seagate/WD/Toshiba/HGST/Hitachi/HP-OEM, `capacity_from_text`,
+  `looks_ssd`, optional ICEcat, Brave fallback (type/interface/form only — never
+  capacity), and `known` folded last (uploaded values win, conflicts flagged).
+- **Self-building cross-ref cache** (Change 7): Brave results persist keyed by the
+  cleaned SKU, so a repeat SKU in any format is a free cache hit. Confident hits get
+  a 60-day TTL; misses a 7-day TTL (never persist an unverified guess). Inspect via
+  `cache.py {stats|show SKU|clear --sku SKU}` over the shared `mpn_cache.json`.
+- **Capacity-distribution audit** (`capacity_audit`) as a regression guard against
+  greedy-match phantom capacities.
+
+#### Changed
+- Enrichment is **decoder-first** (offline) with Brave as the lone network fallback;
+  `/rfq-setup` + `check_setup` need Brave only (ICEcat optional). Credentials work
+  offline with nothing configured.
+- Format bridging in `canonicalize_specs`: `"300 GB"`→`"300GB"`, `SSHD`→`HDD`,
+  `1.8"`→blank+review, `Speed` emitted as an extra passthrough column.
+- MPN extraction now uses the engine's `extract_mpns` (parenthetical MPNs win,
+  manufacturer prefixes preferred); the standalone `extract_mpn.py` is removed.
+- The needs-review report carries the engine's `_confidence` and `_flags`.
+
+#### Removed
+- `ebay_browse_client.py`, `extract_mpn.py`, and the old tiered `enrich_mpn.py`
+  cascade (and their tests). `brokerbin_client.py` / `brave_client.py` remain;
+  BrokerBin is dormant, Brave is reused for the engine fallback + setup smoke-test.
+
 ### 0.8.0 — 2026-05-23
 
 Enrichment overhaul: drop BrokerBin, add eBay, clean the MPN column, and make

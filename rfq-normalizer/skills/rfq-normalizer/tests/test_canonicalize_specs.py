@@ -21,6 +21,24 @@ def test_capacity_strips_internal_whitespace():
     assert out["Capacity"] == "960GB"
 
 
+def test_capacity_strips_space_before_unit():
+    # v0.9 engine emits "300 GB" / "1 TB"; MTGI wants no space.
+    assert canonicalize({"size": "300 GB", "drive_type": "HDD"})["Capacity"] == "300GB"
+    assert canonicalize({"size": "1 TB", "drive_type": "HDD"})["Capacity"] == "1TB"
+
+
+def test_sshd_maps_to_hdd():
+    out = canonicalize({"drive_type": "SSHD"})
+    assert out["Drive Type"] == "HDD"
+    assert out["_provenance"]["Drive Type"]["normalized_from"] == "SSHD"
+
+
+def test_one_point_eight_inch_form_factor_blank():
+    # 1.8" is not in the MTGI Form Factor enum → blank (→ needs-review).
+    out = canonicalize({"form_factor": "1.8\"", "drive_type": "SSD"})
+    assert out["Form Factor"] is None
+
+
 def test_capacity_blank_when_absent():
     out = canonicalize({"drive_type": "HDD"})
     assert out["Capacity"] is None

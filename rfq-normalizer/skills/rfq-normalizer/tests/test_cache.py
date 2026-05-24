@@ -78,6 +78,21 @@ def _concurrent_writer(args):
         )
 
 
+def test_show_and_clear_matching_engine_entries(monkeypatch, tmp_path):
+    # cache.py inspects the shared engine cache (mpn_cache.json) by SKU substring.
+    c = _reload(monkeypatch, RFQ_CACHE_DIR=str(tmp_path / "eng"), RFQ_WORKSPACE_DIR=None)
+    c._save_all({
+        "seagate:ST9300603SS": {"capacity": "300 GB", "type": "HDD"},
+        "xref:PA33N3T8": {"fields": {"type": "SSD"}, "cached_at": "2026-05-23T00:00:00+00:00", "ttl_days": 60},
+        "seagate:ST9500620NS": {"capacity": "500 GB"},
+    })
+    assert set(c.show("ST9300603SS")) == {"seagate:ST9300603SS"}
+    assert c.stats()["total_entries"] == 3
+    assert c.stats()["by_prefix"]["seagate"] == 2
+    assert c.clear_matching("PA33N3T8") == 1
+    assert "xref:PA33N3T8" not in c._load_all()
+
+
 def test_concurrent_writers_do_not_drop_entries(monkeypatch, tmp_path):
     """Stress: 8 workers each writing 25 distinct MPNs must produce 200 entries."""
     import multiprocessing as mp

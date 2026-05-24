@@ -64,3 +64,19 @@ def test_no_extra_columns_keeps_canonical_only(tmp_path):
     rows = [{"MPN": "A", "Quantity": 1, "Capacity": "2TB"}]
     write(rows, out)
     assert _read_headers(out) == CANONICAL
+
+
+def test_engine_helper_columns_stripped_speed_kept(tmp_path):
+    # v0.9 Q3: _-prefixed engine helpers never reach the xlsx; Speed passthrough does.
+    out = tmp_path / "o.xlsx"
+    rows = [{
+        "MPN": "ST9300603SS", "Quantity": 1, "Capacity": "300GB",
+        "Speed": "10000",
+        "_mpn": "ST9300603SS", "_source": "decode:seagate",
+        "_confidence": "HIGH", "_flags": "", "_provenance": {},
+    }]
+    write(rows, out)
+    headers = _read_headers(out)
+    assert "Speed" in headers
+    for h in headers:
+        assert not h.startswith("_")

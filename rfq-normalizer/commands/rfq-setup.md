@@ -1,6 +1,6 @@
 ---
 name: rfq-setup
-description: Configure credentials for the rfq-normalizer skill (eBay Browse + Brave Search). Run once per workspace.
+description: Configure credentials for the rfq-normalizer skill (Brave Search; ICEcat optional). Run once per workspace.
 ---
 
 Walk the user through entering credentials for each enrichment tier the
@@ -34,11 +34,10 @@ so values survive Cowork sandbox resets.
 
    | Credential name | Label | Help text |
    |---|---|---|
-   | `ebay_app_id` | eBay App ID (Client ID) | eBay developer program → your production application keyset: https://developer.ebay.com/my/keys |
-   | `ebay_cert_id` | eBay Cert ID (Client Secret) | The Cert ID from the same keyset as the App ID. |
    | `brave_search_api_key` | Brave Search API key | Sign up at https://api.search.brave.com/app/signup (free tier: 2000 queries/month). |
+   | `icecat_token` | ICEcat API token (optional) | Optional; free tier 403s on most enterprise drives. Leave blank unless you have a paid token. |
 
-   Skipped prompts save nothing — the tier silently disables rather than failing. The eBay keyset must be a **Browse API** application keyset (client-credentials / guest access); the Sell API store account cannot search the marketplace. BrokerBin is no longer used (sunset in v0.8.0); if old `brokerbin_*` values are present they're ignored.
+   Enrichment is **decoder-first and works offline** — Brave is only the network fallback for rows the decoders can't resolve, and ICEcat is optional. Skipped prompts save nothing; the tier silently disables. eBay and BrokerBin are no longer used; any old `ebay_*` / `brokerbin_*` values are ignored.
 
 3. Save each entered value:
 
@@ -60,15 +59,14 @@ so values survive Cowork sandbox resets.
 5. Smoke-test any keys that were configured:
 
    ```bash
-   python "${CLAUDE_PLUGIN_ROOT}/skills/rfq-normalizer/scripts/ebay_browse_client.py" --test-connection ST9300603SS
    python "${CLAUDE_PLUGIN_ROOT}/skills/rfq-normalizer/scripts/brave_client.py" --test-connection "test"
    ```
 
-   Confirm each returns `{"ok": true, "error": null}`.
+   Confirm it returns `{"ok": true, "error": null}`. (No smoke test is needed for the decoder engine — it's offline.)
 
 ## Notes for the agent
 
-- **eBay Browse keyset.** Needs an application keyset (App ID + Cert ID) with Browse API access; the client uses OAuth2 client-credentials (no user-consent redirect). The Sell API store account will not work for marketplace search.
+- **Decoder-first.** The enrichment engine decodes specs from the part number offline; most rows resolve with no credentials. Brave only backstops type/interface/form on rows the decoders can't resolve.
 - **File location.** `python credentials.py backend` shows the active backend (file path or keyring backend name). Useful for diagnosing why a value isn't being read.
 - **Plaintext credentials.** The workspace env file is plaintext; that's acceptable for an internal tool but document it and keep the file out of any synced/shared folder.
 - **Env-var overrides.** If a user has set the corresponding env var (e.g. `BROKERBIN_API_KEY`) the credentials script will return that and skip the file — useful for dev workflows.

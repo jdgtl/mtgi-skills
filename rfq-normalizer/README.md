@@ -14,7 +14,7 @@ MTGI team members who receive vendor RFQs in arbitrary formats (different column
 4. **Preserves extra vendor columns** (Serial, Tested, Source, …) so the wizard captures them as `custom_fields` instead of dropping them
 5. **Normalizes conditions** — grade letters, "B grade" suffixes, and condition words ("Good") → MTGI's condition enum
 6. **Consolidation is opt-in** — live/count inventory defaults to one row per physical unit; when consolidation runs, any same-spec price/capacity conflict safely reverts the whole file to single units
-7. **Enriches missing fields** via a tiered cascade: regex → MTGI catalog → eBay Browse API → Brave web search → leave blank for review (never invents)
+7. **Enriches missing fields** decoder-first: an offline part-number decoder engine (Seagate/WD/Toshiba/HGST/Hitachi/HP-OEM) → Brave web search fallback for type/interface/form → leave blank for review (never invents capacity from a web match)
 8. **Surfaces vendor-internal SKUs** — when web search finds the real manufacturer MPN for a vendor's internal part number (e.g. `PA33N3T8` → `MZILS3T8HMLH`), it offers the swap explicitly
 9. Outputs a template-ready `.xlsx`, a `provenance.json` audit log, and a `needs-review.csv` listing rows with blank/low-confidence core columns or unresolved MPNs
 
@@ -29,8 +29,7 @@ MTGI team members who receive vendor RFQs in arbitrary formats (different column
 1. Drop the `.plugin` file into Claude Cowork — Settings → Plugins → Install from file.
 2. Run `/rfq-setup` once to install Python dependencies and configure credentials.
 3. The setup command walks you through entering:
-   - eBay Browse API keyset — App ID + Cert ID from the eBay developer program (https://developer.ebay.com/my/keys)
-   - Brave Search API key (free tier 2000/mo at https://api.search.brave.com/app/signup)
+   - Brave Search API key (optional — the decoder works offline; Brave is the fallback for rows it can't decode; free tier 2000/mo at https://api.search.brave.com/app/signup)
 
 Credentials are written to a chmod-600 workspace file (`<workspace>/.rfq-normalizer.env`), which is the only storage that survives a Cowork sandbox reset and so is the primary persistence layer. On local-Mac installs with a working keychain, the OS-native secure store (macOS Keychain, Windows Credential Manager, Linux Secret Service) acts as an additional fallback. Env vars override both.
 

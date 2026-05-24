@@ -51,10 +51,13 @@ REQUIRED_FILL = {"argb": "FF0D9488", "font": "FFFFFFFF"}
 OPTIONAL_FILL = {"argb": "FFE5E7EB", "font": "FF1F2937"}
 
 # Per-row keys that are internal plumbing, not output columns. These never
-# become extra columns: _provenance plus the internal spec keys that the
-# canonicalizer maps into the canonical columns above.
+# become extra columns: the internal spec keys the canonicalizer maps into the
+# canonical columns. Plus, ANY underscore-prefixed key is stripped from the
+# delivered xlsx (e.g. _provenance and the engine's _mpn/_source/_confidence/
+# _flags helpers) — those are retained only in the provenance + needs-review
+# sidecars (v0.9 Q3: deliverables stay clean).
 INTERNAL_KEYS = {
-    "_provenance", "size", "interface", "drive_type", "form_factor", "manufacturer",
+    "size", "interface", "drive_type", "form_factor", "manufacturer",
 }
 
 # Default width for preserved extra/custom columns.
@@ -71,7 +74,7 @@ def _extra_headers(rows: list[dict]) -> list[str]:
     extras: list[str] = []
     for row in rows:
         for key in row:
-            if key in canonical or key in INTERNAL_KEYS or key in extras:
+            if key.startswith("_") or key in canonical or key in INTERNAL_KEYS or key in extras:
                 continue
             extras.append(key)
     return extras
@@ -158,7 +161,8 @@ def needs_review(rows: list[dict]) -> list[dict]:
                 low_conf.append(col)
         candidate = row.get("_candidate_real_mpn")
         unresolved_mpn = bool(candidate) or bool(row.get("_mpn_unresolved"))
-        if missing or low_conf or unresolved_mpn:
+        flags = str(row.get("_flags") or "")
+        if missing or low_conf or unresolved_mpn or flags:
             out.append({
                 "row": i,
                 "MPN": row.get("MPN"),
@@ -167,6 +171,8 @@ def needs_review(rows: list[dict]) -> list[dict]:
                 "low_confidence_fields": low_conf,
                 "candidate_real_mpn": candidate,
                 "unresolved_mpn": unresolved_mpn,
+                "_confidence": row.get("_confidence") or "",
+                "_flags": flags,
             })
     return out
 
@@ -183,12 +189,14 @@ def write_needs_review_csv(review: list[dict], path: Path) -> None:
     with path.open("w", newline="") as f:
         w = csv.writer(f)
         w.writerow(["row", "MPN", "Manufacturer", "missing_fields",
-                    "low_confidence_fields", "candidate_real_mpn"])
+                    "low_confidence_fields", "_confidence", "_flags",
+                    "candidate_real_mpn"])
         for r in review:
             w.writerow([
                 r["row"], r["MPN"] or "", r["Manufacturer"] or "",
                 "; ".join(r["missing_fields"]),
                 "; ".join(r["low_confidence_fields"]),
+                r.get("_confidence", ""), r.get("_flags", ""),
                 r["candidate_real_mpn"] or "",
             ])
 
