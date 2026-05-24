@@ -68,3 +68,21 @@ def test_capacity_audit_clean_on_decoded_rows():
             ("ST9300603SS", "ST91000640SS", "ST9500620NS")]
     audit = capacity_audit(rows)
     assert audit["impossible"] == []
+
+
+def test_capacity_audit_form_factor_aware():
+    # Legit large 3.5" drive is NOT flagged (real-file validation false positive).
+    assert capacity_audit([{"capacity": "6 TB", "form_factor": '3.5"'}])["impossible"] == []
+    assert capacity_audit([{"capacity": "8 TB", "form_factor": '3.5"'}])["impossible"] == []
+    # The greedy-match phantom (large capacity on a 2.5" drive) IS flagged.
+    assert capacity_audit([{"capacity": "5 TB", "form_factor": '2.5"'}])["impossible"] == ["5 TB"]
+    # Absurd capacity anywhere is flagged.
+    assert capacity_audit([{"capacity": "99 TB", "form_factor": '3.5"'}])["impossible"] == ["99 TB"]
+
+
+def test_engine_cache_path_honors_rfq_cache_dir(monkeypatch, tmp_path):
+    # The engine must resolve the same cache file as cache.py given RFQ_CACHE_DIR,
+    # so they share one store (Change 7 / Q4).
+    monkeypatch.delenv("MPN_CACHE", raising=False)
+    monkeypatch.setenv("RFQ_CACHE_DIR", str(tmp_path / "shared"))
+    assert enrich_engine._cache_path() == str(tmp_path / "shared" / "mpn_cache.json")

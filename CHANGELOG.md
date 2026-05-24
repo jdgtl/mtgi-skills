@@ -6,6 +6,26 @@ are versioned independently and each entry notes which plugin it applies to.
 
 ## rfq-normalizer
 
+### 0.9.1 — 2026-05-23
+
+Two fixes from validating v0.9.0 against the real Brass Valley bid list (158 rows).
+
+#### Fixed
+- **Engine cache now honors `RFQ_CACHE_DIR`**, so `enrich_engine.py` and
+  `cache.py` resolve the *same* `mpn_cache.json` (Change 7's "one shared cache").
+  Previously the engine used only `MPN_CACHE`/workspace, which could diverge from
+  `cache.py` when `RFQ_CACHE_DIR` was set explicitly.
+- **`capacity_audit` is form-factor aware** — a legitimate 6TB/8TB **3.5"** drive
+  is no longer flagged "impossible". The guard now flags only the actual
+  phantom-capacity pattern (large capacity on a **2.5"** drive) or absurd
+  values (>30TB). (Caught when the real file's Seagate `ST6000NM0004` 6TB 3.5"
+  tripped a false positive.)
+
+Validation result (Brass Valley, 158 rows): 82 HDD correctly typed; with Brave,
+82 resolve HIGH (79 Hitachi `HUS726060ALA640` + 3 Seagate) using the exact-MPN
+capacity path — only 3 Brave calls total thanks to the SKU-keyed cache; the 76
+nonstandard Samsung/Toshiba SSDs route to needs-review. Capacity audit clean.
+
 ### 0.9.0 — 2026-05-23
 
 Decoder-first enrichment. **Supersedes 0.8.0's eBay approach** — both eBay Browse
