@@ -29,7 +29,10 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any
 
-CACHE_FILENAME = "brokerbin-enrichment.json"
+# Unified with the decoder engine's store (enrich_engine.py writes this same
+# file in the same workspace dir), so `cache.py {stats|show|clear}` inspects the
+# one shared self-building cache (v0.9 Change 7).
+CACHE_FILENAME = "mpn_cache.json"
 CACHE_TTL_DAYS = 60
 CACHE_MISS_TTL_DAYS = 7
 
@@ -143,28 +146,48 @@ def put(
 
 
 def stats() -> dict:
-    """Return cache statistics — useful for /scripts/check_setup.py output."""
+    """Return cache statistics over the shared engine cache. Entries are keyed
+    by prefix (decode:/xref:/ice:/xcap:); reports counts per prefix plus, for
+    TTL'd entries (those with cached_at), how many are still fresh."""
     data = _load_all()
-    now = datetime.now(timezone.utc)
-    fresh_hit = 0
-    fresh_miss = 0
-    stale = 0
-    for entry in data.values():
-        ttl = CACHE_MISS_TTL_DAYS if entry.get("is_miss") else CACHE_TTL_DAYS
-        if _is_fresh(entry, ttl):
-            if entry.get("is_miss"):
-                fresh_miss += 1
+    by_prefix: dict[str, int] = {}
+    fresh = stale = 0
+    for key, entry in data.items():
+        prefix = key.split(":", 1)[0] if ":" in key else "decode"
+        by_prefix[prefix] = by_prefix.get(prefix, 0) + 1
+        if isinstance(entry, dict) and entry.get("cached_at"):
+            ttl = entry.get("ttl_days", CACHE_TTL_DAYS)
+            if _is_fresh(entry, ttl):
+                fresh += 1
             else:
-                fresh_hit += 1
-        else:
-            stale += 1
+                stale += 1
     return {
         "path": str(_cache_path()),
         "total_entries": len(data),
-        "fresh_hits": fresh_hit,
-        "fresh_misses": fresh_miss,
-        "stale": stale,
+        "by_prefix": by_prefix,
+        "fresh_ttl_entries": fresh,
+        "stale_ttl_entries": stale,
     }
+
+
+def show(sku: str) -> dict:
+    """Return all cache entries whose key contains the given SKU/MPN (case-insensitive)."""
+    u = sku.strip().upper()
+    return {k: v for k, v in _load_all().items() if u in k.upper()}
+
+
+def clear_matching(sku: str | None) -> int:
+    """Clear entries whose key contains `sku`, or the whole cache if None."""
+    if sku is None:
+        return clear(None)
+    u = sku.strip().upper()
+    data = _load_all()
+    doomed = [k for k in data if u in k.upper()]
+    for k in doomed:
+        del data[k]
+    if doomed:
+        _save_all(data)
+    return len(doomed)
 
 
 def clear(mpn: str | None = None) -> int:
@@ -187,22 +210,19 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser(description="Cache utility commands")
     sub = ap.add_subparsers(dest="cmd")
     sub.add_parser("stats", help="Show cache statistics")
-    p_clear = sub.add_parser("clear", help="Clear cache (or a specific MPN)")
-    p_clear.add_argument("--mpn", default=None)
-    p_show = sub.add_parser("show", help="Show cached entry for an MPN")
-    p_show.add_argument("mpn")
+    p_clear = sub.add_parser("clear", help="Clear cache (or entries matching a SKU/MPN)")
+    p_clear.add_argument("--mpn", "--sku", dest="sku", default=None)
+    p_show = sub.add_parser("show", help="Show cache entries matching a SKU/MPN")
+    p_show.add_argument("sku")
     args = ap.parse_args()
 
     if args.cmd == "stats":
         print(json.dumps(stats(), indent=2))
     elif args.cmd == "clear":
-        n = clear(args.mpn)
+        n = clear_matching(args.sku)
         print(f"Cleared {n} entries")
     elif args.cmd == "show":
-        entry = get(args.mpn)
-        if entry is None:
-            print("(no fresh cache entry)")
-        else:
-            print(json.dumps(entry, indent=2))
+        entries = show(args.sku)
+        print(json.dumps(entries, indent=2) if entries else "(no matching cache entries)")
     else:
         ap.print_help()

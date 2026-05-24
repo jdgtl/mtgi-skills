@@ -26,15 +26,12 @@ def test_renders_file_source(monkeypatch, tmp_path):
     assert rc == 0
 
 
-def test_exits_zero_with_only_ebay_and_brave(monkeypatch, tmp_path):
-    # v0.8: no BrokerBin required. eBay + Brave alone → ready (exit 0).
+def test_exits_zero_with_brave_only(monkeypatch, tmp_path):
+    # v0.9: decoder engine is offline/primary; Brave alone → ready (exit 0).
     creds_file = tmp_path / ".rfq-normalizer.env"
-    creds_file.write_text(
-        "EBAY_APP_ID=a\nEBAY_CERT_ID=b\nBRAVE_SEARCH_API_KEY=z\n"
-    )
+    creds_file.write_text("BRAVE_SEARCH_API_KEY=z\n")
     monkeypatch.setenv("RFQ_CREDS_FILE", str(creds_file))
-    for var in ("EBAY_APP_ID", "EBAY_CERT_ID", "BRAVE_SEARCH_API_KEY",
-                "MTGI_API_URL", "MTGI_API_TOKEN"):
+    for var in ("BRAVE_SEARCH_API_KEY", "ICECAT_TOKEN"):
         monkeypatch.delenv(var, raising=False)
     importlib.reload(credentials)
     importlib.reload(check_setup)
@@ -43,6 +40,7 @@ def test_exits_zero_with_only_ebay_and_brave(monkeypatch, tmp_path):
         rc = check_setup.main()
     output = buf.getvalue()
     assert rc == 0
-    assert "eBay Browse API" in output
-    # Unset deprecated BrokerBin creds are not shown.
-    assert "BrokerBin" not in output
+    assert "Decoder engine" in output
+    assert "Brave web search" in output
+    # Deprecated eBay / BrokerBin creds are not shown.
+    assert "eBay" not in output and "BrokerBin" not in output

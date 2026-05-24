@@ -15,7 +15,7 @@ The user uploads a spreadsheet (xlsx or csv) and asks you to clean it up for MTG
 
 1. **Never invent values.** If a field is missing and you can't find it in the source data or via an enrichment lookup, leave it blank — never guess.
 2. **Exact MPN matches only when consolidating rows.** "WDC SN850" and "WDC-SN850" are NOT the same. If MPN strings differ by even a space or case, treat as separate lines and ask the user.
-3. **Cite every enriched value.** The provenance log must record where each filled-in value came from (regex, MTGI catalog, eBay, Brave, or user-confirmed).
+3. **Cite every enriched value.** The provenance log must record where each filled-in value came from (decoder, regex/text, Brave web search, or user-confirmed).
 4. **Ask, don't assume, when in doubt.** Ambiguous descriptions, conflicting data, multiple potential merges — surface them to the user.
 
 ## Workflow
@@ -32,11 +32,11 @@ export RFQ_WORKSPACE_DIR=<absolute path to the persistent workspace folder>
 
 This is the authoritative location for the chmod-600 credentials file and the enrichment cache. Skip this step if `RFQ_WORKSPACE_DIR` is already set.
 
-Before parsing anything, run `python scripts/check_setup.py`. It exits non-zero only when **no** enrichment tier (eBay or Brave) is configured. If so, tell the user:
+Before parsing anything, run `python scripts/check_setup.py`. Enrichment is **decoder-first and works fully offline**, so credentials are optional — `check_setup` exits non-zero only as a soft nudge when Brave (the web fallback) isn't configured:
 
-> The rfq-normalizer skill has no enrichment tier configured. Run `/rfq-setup` to add eBay Browse and/or Brave Search credentials, then re-run — otherwise only local regex/cache will run and most missing specs will land on the needs-review list.
+> Brave isn't configured. The decoder engine still resolves most drives offline, but rows it can't decode won't use the web fallback and will land on the needs-review list. Run `/rfq-setup` to add a Brave key.
 
-The local tier (vendor columns + regex + cache) always works, so you *can* proceed unconfigured, but enrichment is what fills the core columns. The MTGI catalog tier is optional; eBay Browse is the primary structured spec source (BrokerBin was sunset in v0.8.0).
+You can proceed regardless. eBay and BrokerBin are no longer used (the decoder engine replaced them).
 
 ### 1. Parse the vendor file
 
@@ -73,7 +73,7 @@ After analyze surfaces its warnings, ask the operator a **single** settings card
 | Default Condition for the file | `used_good` | Detected from a `Grade`/`Condition`/`Health` column; ask explicitly if none is present. |
 | Outcome Date source | `filename` if a date is parseable from the input filename, else `ask`. | Parse `YYYY-MM-DD` or `M-D-YYYY` patterns from the input filename. |
 | Consolidation | **off** for `count`/`live` files (one row per physical unit, Quantity = 1); **on** only when `suggested_rfq_mode='historical'`. | step 1b output. |
-| Enrichment scope | `full` | `free-only` (regex + cache only), `top-N` (cap API calls), or `full` (run all configured tiers). |
+| Enrichment scope | `full` | `offline` (decoders + cache only, no network), or `full` (decoders + Brave fallback for rows decoders can't resolve). |
 
 Present all four with sensible defaults pre-filled. After this single interaction, only ambiguous-merge prompts (step 3) and confirmations (vendor-SKU swaps in step 5) should require operator input.
 
@@ -86,23 +86,22 @@ Read `reference/template-schema.md` for the canonical output columns. For each M
 
 Show the user a mapping table and confirm before proceeding.
 
-### 2b. Extract a clean MPN
+### 2b. Clean MPN (via the engine's extractor)
 
-The vendor "Model"/part column mixes brand words, marketing/family names, OEM spare numbers, and the real part number — e.g. `Savvio 10K.3 (ST9300603SS)`, `MM1000FBFVR 605832-002 (ST91000640SS)`. The MPN column must be the **manufacturer part number only**. Run `scripts/extract_mpn.py` (`extract_mpn(model)`) on the mapped MPN/Model column:
+The vendor "Model"/part column mixes brand words, marketing/family names, OEM spare numbers, and the real part number — e.g. `Savvio 10K.3 (ST9300603SS)`, `MM1000FBFVR 605832-002 (ST91000640SS)`. The MPN column must be the **manufacturer part number only**. The enrichment engine's extractor (`extract_mpns`) finds it — parenthetical MPNs win, manufacturer-prefix matches preferred — and `enrich_row` (step 5) returns the chosen MPN as `_mpn`. Set the MPN column from that, always preserving the original:
 
 ```python
-from extract_mpn import extract_mpn
-r = extract_mpn(row["MPN"])
-# Always preserve the full original string for audit:
-row["Description"] = f"{row.get('Description', '')} (vendor MPN: {r['original']})".strip()
-row["MPN"] = r["mpn"]
-if not r["is_real_mpn"]:
-    # keep the cleaned best-effort string (MPN is required — never blank it),
-    # send the row to enrichment to resolve the real MPN, and flag for review.
-    row["_mpn_unresolved"] = True
+from enrich_engine import extract_mpns
+mpns = extract_mpns(brand, row["Model"])
+row["Description"] = f"{row.get('Description','')} (vendor MPN: {row['Model']})".strip()
+if mpns:
+    row["MPN"] = mpns[0][1]            # e.g. ST91000640SS from "MM1000FBFVR … (ST91000640SS)"
+else:
+    row["MPN"] = row["Model"].strip()  # required column — keep the cleaned string, never blank
+    row["_mpn_unresolved"] = True       # → needs-review; enrichment may surface a candidate
 ```
 
-It tokenizes the string, drops brand/family words, scores each token with `mpn_patterns.score_mpn`, and prefers a token matching a known **manufacturer** prefix (Seagate `ST…`) over generic OEM/spare numbers. When no token is a real MPN (e.g. `DC S3500 Series`), it returns a cleaned best-effort string with `is_real_mpn=False` — enrichment then tries to resolve it, and any `candidate_real_mpn` is surfaced (never auto-swapped — see step 5's vendor-SKU rule).
+Never auto-swap to an enrichment-suggested MPN — surface it for confirmation (see the vendor-SKU rule in step 5).
 
 ### 3. Consolidate duplicate rows (opt-in)
 
@@ -127,11 +126,18 @@ Returns:
 
 For every ambiguous pair, ask the user: "These look like the same part — should I merge them?" Show both raw strings. Never auto-merge.
 
-### 4. Split descriptions into spec columns
+### 4. Build the `known` dict from existing cells
 
-Run `scripts/split_description.py` over each row, mining **all text columns** (the vendor's `Description`, `Size`, `Notes`, etc.), not just the primary description. Vendors frequently hide spec hints in the Size column (e.g., "1.2 TB 10K SAS", "7.68TB SSD NVMe"). Use `split_row(row, text_columns=[...])` from the script's API; pass the list of text columns the column-mapping step identified.
+Enrichment fills **blanks only** — values the vendor already supplied always win. Before enriching, gather whatever spec cells the row already has into a `known` dict keyed by contract names:
 
-Each extracted value gets a `source: 'regex'` provenance entry. If the regex can't extract a field with high confidence, leave it blank and flag for enrichment.
+```python
+known = {}
+if row.get("Interface"): known["interface"] = row["Interface"]
+if row.get("Capacity"):  known["capacity"]  = row["Capacity"]
+# ...drive_type, form_factor, speed likewise, from the mapped columns
+```
+
+`scripts/split_description.py` is still available to mine free-text columns (`Notes`, a combined `Size` column) for hints when there's no dedicated spec column — feed anything it confidently extracts into `known` too.
 
 ### 4b. Normalize the condition column
 
@@ -147,36 +153,53 @@ Many lot/refurb vendors use these conventions. The Evolution drive list mixed `B
 
 ### 5. Enrich missing fields (tiered)
 
-**Goal: every row has all applicable core columns filled or on the needs-review list.** Core columns are `MPN`, `Manufacturer`, `Condition`, and the storage specs `Capacity`, `Interface`, `Drive Type`, `Form Factor` (storage specs stay blank for non-storage parts). For each row with any missing core field, walk the cascade below, driving enrichment **per missing column**. **Pass `--current` with the fields the row already has** so the walk skips them and conserves calls.
+**Goal: every row has all applicable core columns filled or on the needs-review list.** Core columns are `MPN`, `Manufacturer`, `Condition`, and the storage specs `Capacity`, `Interface`, `Drive Type`, `Form Factor` (storage specs stay blank for non-storage parts).
 
-| Tier | Source | Notes |
+Enrichment is **decoder-first** via `scripts/enrich_engine.py`. Call `enrich_row(brand, model, known)` per row:
+
+```python
+from enrich_engine import enrich_row
+r = enrich_row(row.get("Brand",""), row.get("Model",""), known=known)
+# r → capacity, drive_type, interface, form_factor, speed, _mpn, _source, _confidence, _flags
+```
+
+Pipeline inside `enrich_row` (load-bearing order, validated on ~660 rows):
+
+| Step | Source | Notes |
 |------|--------|-------|
-| 1 | **local** — vendor columns + regex (`split_description`) + cache | free; already fills most rows |
-| 2 | **MTGI catalog lookup** (optional, see Setup) | only if configured |
-| 3 | **eBay Browse API** | structured item aspects (capacity/interface/drive_type/form_factor/manufacturer/condition); consensus across active listings |
-| 4 | **Brave web search** | MPN resolution + cross-ref / spec confirmation (`site:ebay.com "{MPN}"` and general) |
-| 5 | **leave blank → needs-review** | never invent |
+| 1 | `capacity_from_text` | capacity from the model string — decoder/text only |
+| 2 | `looks_ssd` | tentative drive type |
+| 3 | vendor **decoders** (Seagate/WD/Toshiba/HGST/Hitachi/HP-OEM) | free, offline, deterministic — resolves most enterprise drives |
+| 4 | ICEcat (optional) | only if gaps remain and `ICECAT_TOKEN` set |
+| 5 | **Brave web search** | type/interface/form ONLY for still-gapped rows — **never capacity** |
+| 6 | `known` folded LAST | uploaded values win; decoder-vs-known disagreement → `_flags`, not a correction |
 
-Run `scripts/enrich_mpn.py <mpn>` (or `--batch`) which orchestrates tiers 1–4. BrokerBin was **sunset in v0.8.0** — it is not in the cascade. Stop as soon as a field is confirmed.
+`_confidence` = HIGH (4 core fields) / MED (2–3) / LOW (1) / NONE (0).
 
-The skill keeps a **persistent MPN cache** (workspace `.rfq-cache/`). Cache hits return instantly with no API call. TTL: 60 days for hits, 7 days for "no results" misses. Inspect/clear: `python scripts/cache.py {stats|clear|show MPN}`.
+**Hard rules (do not "improve" away):**
+- **Capacity comes only from a decoder or the text — never from a web family/series match.** (The one narrow exception: Brave may set capacity tagged-low-confidence *only* when the exact MPN string appears with a single consistent capacity across ≥2 results.)
+- **Fill blanks only.** On a decoder-vs-`known` conflict, keep `known` and record a `_flags` note.
+- **Nonstandard/OEM-relabeled MPN → LOW + `NONSTANDARD_MPN` flag, never a guess.**
 
-**Fill policy (reconciles with never-invent):**
+**Self-building cross-ref cache.** Brave results are written back to the workspace cache keyed by the cleaned **SKU** (not the raw `brand model` blob), so a repeat SKU in any format is a free cache hit on later rows/files/runs. Only confident (unanimous ≥2) results persist durably (60-day TTL); misses get a short 7-day TTL so they re-verify. Inspect/clear: `python scripts/cache.py {stats|show SKU|clear --sku SKU}`.
 
-- **Core spec fields** (capacity, interface, drive_type, form_factor, manufacturer): fill when consensus ≥ 0.60 with ≥2 corroborating listings. Between 0.60 and 0.89 the cell is tagged `tagged_low_confidence` in provenance with an `[unverified — {source} consensus N%]` note. Below 0.60 or no data → leave blank and it lands on the needs-review list.
-- **Required fields** (MPN, Condition) and **MPN swaps**: never best-guessed — confirm with the operator or leave for review.
+**Vendor-SKU / unresolved-MPN.** When `extract_mpns` finds no manufacturer MPN (e.g. `DC S3500 Series`, `PA33N3T8`), `enrich_row` flags `NONSTANDARD_MPN` and the row goes to needs-review. If a confident candidate MPN turns up, surface it — never auto-swap:
 
-Provenance must cite the source tier (`ebay`, `web_search`, `mtgi_catalog`, …) for every enriched value.
-
-**Vendor-SKU / unresolved-MPN detection.** `enrich_mpn.py` returns an `mpn_assessment` block (see `reference/mpn-patterns.md`). When the MPN doesn't match any known manufacturer prefix AND no tier found listings, `likely_vendor_sku: true` is set; when web search surfaces a `candidate_real_mpn`, it's attached. Surface it — never auto-swap:
-
-> The MPN `PA33N3T8` doesn't match any known manufacturer prefix and no listings were found. Web search suggests the real manufacturer MPN may be `MZILS3T8HMLH` — use that, keep the vendor SKU, or pause this row for review?
-
-After confirmation, re-run enrichment with the swapped MPN. Rows with an unresolved MPN go on the needs-review list (step 6) carrying any `candidate_real_mpn`.
+> `PA33N3T8` isn't a standard manufacturer MPN. A web cross-ref suggests `MZILS3T8HMLH` — use that, keep the vendor SKU, or pause this row for review?
 
 ### 5b. Canonicalize spec columns
 
-Before writing the output, run each row's enriched specs through `scripts/canonicalize_specs.py`. The extraction and enrichment tiers produce *rich* internal spec values (e.g. `drive_type='U.2 SSD'`, `interface='PCIe x4 NVMe'`, `form_factor='M.2 2280'`) that power consensus voting — but the MTGI intake wizard only maps the **constrained canonical values** to typed columns. This step collapses them:
+Feed the engine's output into `scripts/canonicalize_specs.py` (map `enrich_row`'s `capacity/drive_type/interface/form_factor/manufacturer` → the canonicalizer's `size/interface/drive_type/form_factor/manufacturer` input keys). It collapses values to the constrained MTGI enums and **bridges the engine's formats**:
+
+- `capacity` `"300 GB"`/`"1 TB"` → `Capacity` `"300GB"`/`"1TB"` (space stripped)
+- `drive_type` `HDD`/`SSD` pass through; `SSHD` → `HDD` (provenance `normalized_from`)
+- `interface` `SATA`/`SAS`/`NVMe` pass through
+- `form_factor` `2.5"`/`3.5"`/`M.2` → `2.5in`/`3.5in`/`M.2`; `1.8"` isn't in the MTGI enum → **blank + needs-review**
+- `speed` has no canonical column → emit as an extra passthrough column `Speed` (the writer preserves extras; the wizard captures it as a custom field)
+
+Carry the engine's `_flags` (`KNOWN_CONFLICT`, `CAP_CONFLICT`, `NONSTANDARD_MPN`, `CAP_FROM_SEARCH_LOWCONF`) into provenance and the needs-review list.
+
+The canonical mapping itself:
 
 - `size` → **Capacity** (verbatim clean string, e.g. `1.92TB`)
 - `interface` → **Interface** — one of `SATA` / `SAS` / `NVMe` (priority NVMe > SAS > SATA; other buses blank)
@@ -213,19 +236,14 @@ On a fresh install, run `/rfq-setup`. It writes credentials to a chmod-600 file 
 Power users and CI can override stored values with env vars:
 
 ```bash
-# Optional: enables Tier 1 catalog lookup
-MTGI_API_URL=https://your-mtgi-instance.example.com
-MTGI_API_TOKEN=<token-from-MTGI-settings>
-
-# Override the workspace file — wins when set
-EBAY_APP_ID=<app-id>          # eBay Browse API application keyset
-EBAY_CERT_ID=<cert-id>
-BRAVE_SEARCH_API_KEY=<key>
+# Web fallback (optional — decoders run offline without it)
+BRAVE_SEARCH_API_KEY=<key>    # the engine also accepts BRAVE_API_KEY
+ICECAT_TOKEN=<token>          # optional; rarely useful on enterprise drives
 
 # Optional path overrides
 RFQ_WORKSPACE_DIR=/path/to/persistent/dir
 RFQ_CREDS_FILE=/path/to/.rfq-normalizer.env
-RFQ_CACHE_DIR=/path/to/.rfq-cache
+RFQ_CACHE_DIR=/path/to/.rfq-cache    # also where the engine's mpn_cache.json lives
 ```
 
 Inspect what's configured with `python scripts/check_setup.py`. Manage stored credentials directly with `python scripts/credentials.py {status|get|set|delete|backend} ...`. The `backend` subcommand prints the active storage location (file path or keyring backend name).
@@ -239,20 +257,18 @@ Inspect what's configured with `python scripts/check_setup.py`. Manage stored cr
 - `scripts/parse_vendor.py` — read xlsx/csv into rows; auto-detect header row, skip banners, drop TOTAL/summary footers (`--header-row N` override)
 - `scripts/analyze_columns.py` — fill rates + row-per-item detection (serial signal weighted by fill rate) + live-vs-historical hint
 - `scripts/consolidate_duplicates.py` — group by exact MPN; mode='sum' or mode='count'; must-agree conflict detection with whole-file fallback to single units
-- `scripts/split_description.py` — description → spec columns (regex, free)
-- `scripts/canonicalize_specs.py` — collapse rich internal specs → the 5 typed output columns; storage-domain gating + provenance
+- `scripts/enrich_engine.py` — **decoder-first enrichment engine**: `enrich_row(brand, model, known)` + part-number decoders, Brave fallback, self-building SKU cache
+- `scripts/split_description.py` — description → spec hints (regex, free); supplements `known`
+- `scripts/canonicalize_specs.py` — collapse engine specs → the 5 typed output columns; format bridging + storage-domain gating + provenance
 - `scripts/normalize_grade.py` — A/B/C/D grade letters → MTGI condition enum
 - `scripts/normalize_condition.py` — single entry point for condition: grade letters, "B grade" suffixes, and condition words
-- `scripts/extract_mpn.py` — pull the manufacturer part number out of a messy vendor Model string (prefers known-mfg prefixes; flags unresolved)
-- `scripts/mpn_patterns.py` — score MPNs against known manufacturer prefixes (flags vendor SKUs)
-- `scripts/manufacturer_aliases.py` — collapse HGST/Hitachi→WD, Compaq/HPE, etc. for clean consensus
-- `scripts/enrich_mpn.py` — tiered enrichment cascade (MTGI → eBay → Brave) with pre-flight skip + persistent cache
-- `scripts/ebay_browse_client.py` — eBay Browse API client (Tier 3 structured item aspects)
-- `scripts/brave_client.py` — Brave Search API v1 client (Tier 4 web search)
-- `scripts/brokerbin_client.py` — **deprecated (v0.8.0)** BrokerBin client, kept dormant (not wired into enrichment)
+- `scripts/mpn_patterns.py` — score MPNs against known manufacturer prefixes; `strip_brand_prefix`
+- `scripts/manufacturer_aliases.py` — collapse HGST/Hitachi→WD, Compaq/HPE, etc. before consensus voting
+- `scripts/brave_client.py` — Brave Search API client; used by `/rfq-setup` to smoke-test the key
+- `scripts/brokerbin_client.py` — **deprecated/dormant** (BrokerBin sunset; not wired into enrichment)
 - `scripts/credentials.py` — per-user credential store; chmod-600 workspace file with env-var and keyring fallbacks
 - `scripts/workspace.py` — workspace-folder detection for persistent storage
-- `scripts/cache.py` — persistent MPN cache (60-day TTL); CLI for stats/clear/show
+- `scripts/cache.py` — inspect/clear the shared engine cache (`mpn_cache.json`): `{stats|show SKU|clear --sku SKU}`
 - `scripts/write_template.py` — emit normalized xlsx + provenance + needs-review report
 - `scripts/check_setup.py` — report credential + tier configuration
 - `prompts/extract-specs.md` — LLM fallback for descriptions regex can't parse

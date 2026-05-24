@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from typing import Any
 
@@ -78,6 +79,10 @@ def _canon_drive_type(value: str | None) -> tuple[str | None, bool]:
     if not value:
         return None, False
     u = value.strip().upper()
+    # Hybrid drives (SSHD) are catalogued as HDD in the MTGI enum. Check before
+    # the SSD test (SSHD does not contain the "SSD" substring anyway).
+    if "SSHD" in u or "HYBRID" in u:
+        return "HDD", False
     # Vendor spellings — "Hard Drive" / "Solid State Drive" are common and don't
     # contain the "HDD"/"SSD" substrings. Check these before the substring test.
     if "SOLID STATE" in u or "SSD" in u:  # SSD substring also covers "U.2 SSD"
@@ -157,7 +162,11 @@ def canonicalize(specs: dict[str, Any]) -> dict[str, Any]:
     raw_manufacturer = specs.get("manufacturer")
 
     # ── Compute canonical values ──────────────────────────────────────────
-    capacity = " ".join(str(raw_size).split()) if raw_size else None
+    # MTGI Capacity is unit-suffixed with no space: "300 GB"/"1 TB" → "300GB"/"1TB".
+    capacity = None
+    if raw_size:
+        capacity = re.sub(r"(?<=\d)\s+(TB|GB|MB)\b", r"\1",
+                          " ".join(str(raw_size).split()), flags=re.I)
 
     interface = _canon_interface(raw_interface)
     drive_type, is_non_storage = _canon_drive_type(raw_drive_type)

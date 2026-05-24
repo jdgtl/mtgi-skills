@@ -38,34 +38,37 @@ except ImportError:
 
 
 CREDENTIAL_SCHEMA: dict[str, dict[str, str]] = {
-    "ebay_app_id": {
-        "env": "EBAY_APP_ID",
-        "label": "eBay App ID (Client ID)",
-        "help": "eBay developer program → your production application keyset. https://developer.ebay.com/my/keys",
-    },
-    "ebay_cert_id": {
-        "env": "EBAY_CERT_ID",
-        "label": "eBay Cert ID (Client Secret)",
-        "help": "eBay developer program → the Cert ID from the same keyset as the App ID.",
-    },
     "brave_search_api_key": {
         "env": "BRAVE_SEARCH_API_KEY",
         "label": "Brave Search API key",
-        "help": "Sign up at https://api.search.brave.com/app/signup (free tier: 2000 queries/month).",
+        "help": "Sign up at https://api.search.brave.com/app/signup (free tier: 2000 queries/month). The decoder engine works offline; Brave is the network fallback for type/interface/form.",
     },
-    # Deprecated as of v0.8.0 — BrokerBin was sunset as an enrichment source.
-    # Kept in the schema (back-compat) so existing stored values still resolve
-    # and `delete` works; no longer prompted for or required by check_setup.
+    "icecat_token": {
+        "env": "ICECAT_TOKEN",
+        "label": "ICEcat API token (optional)",
+        "help": "Optional. Free tier 403s on most enterprise drives, so it contributes little — leave blank unless you have a paid token.",
+    },
+    # Deprecated — no longer used for enrichment. Kept in the schema (back-compat)
+    # so existing stored values still resolve and `delete` works; not prompted for.
+    # eBay (added then dropped in the superseded 0.8.0 eBay draft) and BrokerBin.
+    "ebay_app_id": {
+        "env": "EBAY_APP_ID", "label": "eBay App ID (deprecated)",
+        "help": "Deprecated — eBay Browse enrichment was dropped in favor of the decoder engine.",
+        "deprecated": "true",
+    },
+    "ebay_cert_id": {
+        "env": "EBAY_CERT_ID", "label": "eBay Cert ID (deprecated)",
+        "help": "Deprecated — eBay Browse enrichment was dropped in favor of the decoder engine.",
+        "deprecated": "true",
+    },
     "brokerbin_api_key": {
-        "env": "BROKERBIN_API_KEY",
-        "label": "BrokerBin API key (deprecated)",
-        "help": "Deprecated in v0.8.0 — no longer used for enrichment.",
+        "env": "BROKERBIN_API_KEY", "label": "BrokerBin API key (deprecated)",
+        "help": "Deprecated — BrokerBin was sunset as an enrichment source.",
         "deprecated": "true",
     },
     "brokerbin_login": {
-        "env": "BROKERBIN_LOGIN",
-        "label": "BrokerBin login (deprecated)",
-        "help": "Deprecated in v0.8.0 — no longer used for enrichment.",
+        "env": "BROKERBIN_LOGIN", "label": "BrokerBin login (deprecated)",
+        "help": "Deprecated — BrokerBin was sunset as an enrichment source.",
         "deprecated": "true",
     },
 }
