@@ -31,16 +31,23 @@ def _cred(name):
         return None
 
 def _cache_path():
+    # Resolve to the SAME location as scripts/cache.py so there is one shared
+    # cache (Change 7 / Q4): MPN_CACHE (full path) > RFQ_CACHE_DIR > workspace
+    # .rfq-cache > home fallback.
     explicit = os.environ.get("MPN_CACHE")
     if explicit:
         return explicit
-    try:
-        from workspace import workspace_dir
-        d = workspace_dir() / ".rfq-cache"
-        d.mkdir(parents=True, exist_ok=True)
-        return str(d / "mpn_cache.json")
-    except Exception:
-        return "mpn_cache.json"
+    rcd = os.environ.get("RFQ_CACHE_DIR")
+    if rcd:
+        d = rcd
+    else:
+        try:
+            from workspace import workspace_dir
+            d = str(workspace_dir() / ".rfq-cache")
+        except Exception:
+            d = os.path.join(os.path.expanduser("~"), ".cache", "rfq-normalizer")
+    os.makedirs(d, exist_ok=True)
+    return os.path.join(d, "mpn_cache.json")
 
 def load_cache():
     try:
@@ -471,17 +478,24 @@ def enrich_row(brand, model, known=None):
 
 
 def capacity_audit(rows):
-    """Count rows per capacity bucket; flag impossible enterprise-drive values.
-    Used as a regression guard after any decoder change (catches greedy-match
-    phantom capacities like 5TB/9TB from an ST9 prefix)."""
+    """Count rows per capacity bucket; flag *impossible* values. Form-factor
+    aware: the phantom-capacity bugs were large capacities on a 2.5" drive from
+    a greedy ST9 match — a 6TB/8TB/etc 3.5" drive is perfectly legitimate and
+    must NOT be flagged. Guards against confident-wrong, not large-but-real."""
     from collections import Counter
     dist=Counter()
     impossible=[]
     for r in rows:
         cap=(r.get("capacity") or r.get("Capacity") or "").strip()
+        ff=(r.get("form_factor") or r.get("Form Factor") or "")
         dist[cap]+=1
         m=re.match(r"(\d+(?:\.\d+)?)\s*TB", cap, re.I)
-        if m and float(m.group(1))>=5:        # >=5TB on a 2.5"/legacy drive is suspect
+        if not m:
+            continue
+        tb=float(m.group(1))
+        # >2TB on a 2.5" HDD-style drive is the greedy-match phantom; >30TB is
+        # absurd on any current drive.
+        if (tb>2 and "2.5" in ff) or tb>30:
             impossible.append(cap)
     return {"distribution": dict(dist), "impossible": impossible}
 
