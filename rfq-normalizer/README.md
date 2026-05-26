@@ -16,7 +16,8 @@ MTGI team members who receive vendor RFQs in arbitrary formats (different column
 6. **Consolidation is opt-in** — live/count inventory defaults to one row per physical unit; when consolidation runs, any same-spec price/capacity conflict safely reverts the whole file to single units
 7. **Enriches missing fields** decoder-first: an offline part-number decoder engine (Seagate/WD/Toshiba/HGST/Hitachi/HP-OEM) → Brave web search fallback for type/interface/form → leave blank for review (never invents capacity from a web match)
 8. **Surfaces vendor-internal SKUs** — when web search finds the real manufacturer MPN for a vendor's internal part number (e.g. `PA33N3T8` → `MZILS3T8HMLH`), it offers the swap explicitly
-9. Outputs a template-ready `.xlsx`, a `provenance.json` audit log, and a `needs-review.csv` listing rows with blank/low-confidence core columns or unresolved MPNs
+9. **Composes a fallback `Description`** from the confirmed specs (e.g. `Western Digital 6TB HDD SATA 3.5in`) when the vendor sheet has none — fill-blank-only, never overwriting real vendor text
+10. Outputs a template-ready `.xlsx`, a `provenance.json` audit log, and a `needs-review.csv` listing rows with blank/low-confidence core columns or unresolved MPNs
 
 ## Hard rules
 

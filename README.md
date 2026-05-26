@@ -14,7 +14,7 @@ This clones the marketplace privately to your local Claude install. You can then
 
 | Plugin | Version | Description |
 |---|---|---|
-| [`rfq-normalizer`](./rfq-normalizer) | 0.9.0 | Cleans up any vendor RFQ spreadsheet (xlsx/csv) and produces MTGI's historical-import xlsx + provenance log + needs-review report. Auto-detects header rows / drops summary footers, extracts a clean MPN, splits free-text into five typed spec columns, preserves extra vendor columns, normalizes conditions, offline part-number decoder enrichment (Brave fallback), vendor-SKU detection. |
+| [`rfq-normalizer`](./rfq-normalizer) | 0.9.3 | Cleans up any vendor RFQ spreadsheet (xlsx/csv) and produces MTGI's historical-import xlsx + provenance log + needs-review report. Auto-detects header rows / drops summary footers, extracts a clean MPN, splits free-text into five typed spec columns, preserves extra vendor columns, normalizes conditions, offline part-number decoder enrichment (Brave fallback), composes a fallback Description from confirmed specs, vendor-SKU detection. |
 
 ## Install a specific plugin
 
@@ -22,7 +22,7 @@ This clones the marketplace privately to your local Claude install. You can then
 claude plugin install rfq-normalizer@mtgi-skills
 ```
 
-Then run the plugin's first-run setup. For `rfq-normalizer`, that's `/rfq-setup` — it'll install Python dependencies and walk you through entering credentials (stored in your OS-native secure keychain).
+Then run the plugin's first-run setup. For `rfq-normalizer`, that's `/rfq-setup` — it installs Python dependencies and offers an optional Brave Search key (enrichment is decoder-first and works offline; Brave is just the fallback). Credentials persist in a chmod-600 workspace file, with the OS keychain as a secondary fallback on local installs.
 
 ## Updates
 
