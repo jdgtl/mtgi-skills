@@ -6,6 +6,15 @@ are versioned independently and each entry notes which plugin it applies to.
 
 ## rfq-normalizer
 
+### 0.9.4 — 2026-07-02
+
+#### Fixed
+- **M.2 form-factor regex had no capture group**, so `extract_form_factor` fell
+  through to the unformatted literal `"M.2 {0}"` instead of e.g. `"M.2 2280"`.
+  Added a capturing group around the size digits and made the `M.2 ` prefix
+  optional (`\b(?:M\.2\s*)?(22(?:80|30|110))\b`), so a bare `2280`/`2230`/`22110`
+  in the description now also resolves correctly.
+
 ### 0.9.3 — 2026-05-24
 
 #### Added

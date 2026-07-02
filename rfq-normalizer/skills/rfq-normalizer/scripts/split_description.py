@@ -49,7 +49,7 @@ DRIVE_TYPE_PATTERNS = [
 FORM_FACTOR_PATTERNS = [
     (re.compile(r"\b2\.5\s*(?:\"(?=\s|$|[^0-9])|inch\b|in\b)|\bSFF\b", re.I), "2.5in"),
     (re.compile(r"\b3\.5\s*(?:\"(?=\s|$|[^0-9])|inch\b|in\b)|\bLFF\b", re.I), "3.5in"),
-    (re.compile(r"\bM\.2\s*22(?:80|30|110)\b|\b22(?:80|30|110)\b", re.I), "M.2 {0}"),
+    (re.compile(r"\b(?:M\.2\s*)?(22(?:80|30|110))\b", re.I), "M.2 {0}"),
     (re.compile(r"\bLow\s*Profile\b|\bLP\b|\bHalf-Height\b", re.I), "LP PCIe"),
     (re.compile(r"\bFull\s*Height\b|\bFH\b(?![A-Z])", re.I), "FH PCIe"),
     (re.compile(r"\b([12])U\b", re.I), "{0}U"),
