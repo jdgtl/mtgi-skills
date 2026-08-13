@@ -140,20 +140,54 @@ def check_r2() -> list[dict]:
     else:
         out.append(_check("npx", "ok", "npx is available for `wrangler r2 object put`."))
 
+    import os as _os
+    from pathlib import Path as _Path
+
     token_set = bool(
-        __import__("os").environ.get("CLOUDFLARE_API_TOKEN")
-        or __import__("os").environ.get("CLOUDFLARE_API_KEY")
+        _os.environ.get("CLOUDFLARE_API_TOKEN") or _os.environ.get("CLOUDFLARE_API_KEY")
     )
+    # `wrangler login` stores an OAuth config instead of a token. On macOS it
+    # lands under ~/Library/Preferences; elsewhere it follows XDG.
+    oauth_config = next(
+        (
+            p
+            for p in (
+                _Path.home() / "Library/Preferences/.wrangler/config/default.toml",
+                _Path.home() / ".config/.wrangler/config/default.toml",
+                _Path.home() / ".wrangler/config/default.toml",
+            )
+            if p.exists()
+        ),
+        None,
+    )
+
     if token_set:
         out.append(_check("cloudflare_auth", "ok", "CLOUDFLARE_API_TOKEN is set."))
+    elif oauth_config:
+        out.append(
+            _check("cloudflare_auth", "ok", f"wrangler is logged in ({oauth_config.name}).")
+        )
     else:
-        # `wrangler login` writes an OAuth config instead; can't detect it cheaply.
         out.append(
             _check(
                 "cloudflare_auth",
-                "warn",
-                "CLOUDFLARE_API_TOKEN is not set. Uploads rely on a prior `npx wrangler login`.",
-                "Set CLOUDFLARE_API_TOKEN with R2 write scope if uploads fail to authenticate.",
+                "fail",
+                "No Cloudflare auth: CLOUDFLARE_API_TOKEN unset and wrangler is not logged in.",
+                "Run `npx wrangler login`, or set CLOUDFLARE_API_TOKEN with R2 write scope.",
+            )
+        )
+
+    account_id = credentials.get("cloudflare_account_id")
+    if account_id:
+        out.append(_check("cloudflare_account", "ok", f"Account pinned ({account_id[:8]}…)."))
+    else:
+        out.append(
+            _check(
+                "cloudflare_account",
+                "fail",
+                "No Cloudflare account pinned. wrangler refuses to choose when a login "
+                "can reach more than one account.",
+                "python3 credentials.py set cloudflare_account_id <account-id>",
             )
         )
 
@@ -163,7 +197,11 @@ def check_r2() -> list[dict]:
         return out
 
     try:
-        req = urllib.request.Request(base + "/", method="HEAD")
+        # Same User-Agent as the staging verifier: Cloudflare 403s the default
+        # `Python-urllib/x.y` on this zone, which would misreport a healthy base.
+        req = urllib.request.Request(
+            base + "/", method="HEAD", headers={"User-Agent": "ebay-lister/0.1"}
+        )
         with urllib.request.urlopen(req, timeout=20) as resp:
             status = resp.status
     except urllib.error.HTTPError as e:

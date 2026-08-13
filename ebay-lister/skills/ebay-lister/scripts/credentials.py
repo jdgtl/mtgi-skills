@@ -109,6 +109,11 @@ CREDENTIAL_SCHEMA: dict[str, dict[str, str]] = {
         "label": "R2 key prefix",
         "help": "Key prefix for staged images. Defaults to `listings`.",
     },
+    "cloudflare_account_id": {
+        "env": "CLOUDFLARE_ACCOUNT_ID",
+        "label": "Cloudflare account ID",
+        "help": "Required when your Cloudflare login can reach more than one account — wrangler refuses to guess in non-interactive mode. Defaults to J/DGTL, which owns the mtgi bucket.",
+    },
 }
 
 # Values used when a credential is unset. These are configuration, not secrets.
@@ -117,6 +122,10 @@ DEFAULTS: dict[str, str] = {
     "r2_bucket": "mtgi",
     "r2_public_base": "https://assets.mtgi-inc.com",
     "r2_prefix": "listings",
+    # J/DGTL — the account that owns the `mtgi` bucket. Not a secret; an
+    # account identifier. Pinned because a login with access to more than one
+    # account makes wrangler error out rather than choose.
+    "cloudflare_account_id": "bddae7eecfff3e0fb41ae0f3c0bac27d",
 }
 
 # Credentials the skill cannot run without. `/ebay-setup` prompts for these.

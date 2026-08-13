@@ -20,6 +20,7 @@ CLI:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -27,6 +28,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -59,6 +61,12 @@ EBAY_SAFE_TYPES = {"image/jpeg", "image/png", "image/gif"}
 GROUP_RE = re.compile(r"^(?P<group>.+)-(?P<index>\d+)$")
 
 WRANGLER_TIMEOUT_S = 180
+
+# Cloudflare answers the default `Python-urllib/x.y` User-Agent with 403 on this
+# zone, so an unset UA makes every verification a false negative -- the upload
+# is fine, the URL is fine, and the skill refuses to publish anyway. eBay's
+# fetcher sends its own UA and is unaffected; this is purely about the check.
+VERIFY_USER_AGENT = "ebay-lister/0.1 (+https://github.com/jdgtl/mtgi-skills)"
 
 
 class R2Error(RuntimeError):
@@ -196,9 +204,16 @@ def _wrangler_put(key: str, file_path: Path, content_type: str) -> None:
         f"--content-type={content_type}",
         "--remote",
     ]
+    # A Cloudflare login that can reach more than one account makes wrangler
+    # bail out in non-interactive mode rather than pick one, so pin the account.
+    env = os.environ.copy()
+    account_id = credentials.get("cloudflare_account_id")
+    if account_id:
+        env["CLOUDFLARE_ACCOUNT_ID"] = account_id
+
     try:
         proc = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=WRANGLER_TIMEOUT_S
+            cmd, capture_output=True, text=True, timeout=WRANGLER_TIMEOUT_S, env=env
         )
     except FileNotFoundError as e:
         raise R2Error("`npx` not found. Node.js is required to stage images to R2.") from e
@@ -207,6 +222,12 @@ def _wrangler_put(key: str, file_path: Path, content_type: str) -> None:
 
     if proc.returncode != 0:
         detail = (proc.stderr or proc.stdout or "").strip()
+        if "More than one account" in detail:
+            raise R2Error(
+                "wrangler could not choose between your Cloudflare accounts.\n"
+                "Set the cloudflare_account_id credential to the one owning the bucket:\n"
+                "  python3 credentials.py set cloudflare_account_id <account-id>"
+            )
         if "authentication" in detail.lower() or "10000" in detail:
             raise R2Error(
                 f"wrangler could not authenticate to Cloudflare.\n"
@@ -215,17 +236,32 @@ def _wrangler_put(key: str, file_path: Path, content_type: str) -> None:
         raise R2Error(f"wrangler failed on {key}:\n{detail[:800]}")
 
 
-def _verify_public(url: str) -> dict:
+def _verify_public(url: str, attempts: int = 5) -> dict:
     """HEAD the public URL. eBay fetches these server-side -- a 403/404 here
-    means the listing would publish with broken images."""
-    req = urllib.request.Request(url, method="HEAD")
-    try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            return {"url": url, "status": resp.status, "ok": 200 <= resp.status < 300}
-    except urllib.error.HTTPError as e:
-        return {"url": url, "status": e.code, "ok": False}
-    except urllib.error.URLError as e:
-        return {"url": url, "status": 0, "ok": False, "error": str(e.reason)}
+    means the listing would publish with broken images.
+
+    Retries with backoff: an object is not always visible on the custom domain
+    the instant `wrangler put` returns, so a single immediate check reports a
+    false 404 on a perfectly good upload.
+    """
+    status, error = 0, None
+    for attempt in range(attempts):
+        if attempt:
+            time.sleep(attempt)  # 1s, 2s, 3s, 4s
+        req = urllib.request.Request(url, method="HEAD", headers={"User-Agent": VERIFY_USER_AGENT})
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                status = resp.status
+                if 200 <= status < 300:
+                    return {"url": url, "status": status, "ok": True, "attempts": attempt + 1}
+        except urllib.error.HTTPError as e:
+            status = e.code
+        except urllib.error.URLError as e:
+            status, error = 0, str(e.reason)
+    out = {"url": url, "status": status, "ok": False, "attempts": attempts}
+    if error:
+        out["error"] = error
+    return out
 
 
 def stage(
@@ -275,7 +311,13 @@ def stage(
                     f"format for self-hosted images. Convert it to JPEG or PNG."
                 )
 
-            key = f"{_prefix()}/{sku}/{image['index']:02d}{source.suffix.lower()}"
+            # Content hash in the key, not just the index. The R2 custom domain
+            # sits behind Cloudflare's edge cache, so re-staging a corrected
+            # photo at the same key can serve eBay the stale cached image --
+            # silently, since the URL still returns 200. Different bytes now
+            # mean a different key, which no cache can confuse.
+            digest = hashlib.sha256(source.read_bytes()).hexdigest()[:10]
+            key = f"{_prefix()}/{sku}/{image['index']:02d}-{digest}{source.suffix.lower()}"
             _wrangler_put(key, source, content_type)
             url = f"{public_base}/{key}"
             urls.append(url)
