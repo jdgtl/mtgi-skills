@@ -1,0 +1,16 @@
+{
+  "name": "ebay-lister",
+  "version": "0.1.0",
+  "description": "Build and publish eBay listings conversationally. Groups local product photos, stages them to Cloudflare R2, resolves the eBay category and its required item aspects, drafts the title and specifics for your approval, then runs the Sell Inventory chain (inventory item -> offer -> publish). Also inspects, creates, and edits the business policies and inventory locations a listing depends on. OAuth once; the refresh token is good for 18 months.",
+  "author": {
+    "name": "Jonathan Glass / DGTL for MTGI"
+  },
+  "keywords": [
+    "mtgi",
+    "ebay",
+    "listing",
+    "inventory",
+    "r2",
+    "oauth"
+  ]
+}
