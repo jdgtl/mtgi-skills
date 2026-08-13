@@ -52,11 +52,19 @@ CONTENT_TYPES = {
     ".png": "image/png",
     ".webp": "image/webp",
     ".gif": "image/gif",
+    ".tif": "image/tiff",
+    ".tiff": "image/tiff",
+    # iPhones shoot HEIC by default. eBay does not accept it, but `sips` reads
+    # it natively, so the optimize pass converts to JPEG and it never reaches
+    # eBay as HEIC. Accepted here so scan() doesn't silently skip every photo.
+    ".heic": "image/heic",
+    ".heif": "image/heic",
 }
 
-# eBay accepts JPEG, PNG, GIF, BMP, TIFF for self-hosted images. WebP is NOT
-# accepted -- flag it at scan time rather than letting publish fail.
-EBAY_SAFE_TYPES = {"image/jpeg", "image/png", "image/gif"}
+# eBay accepts JPEG, PNG, GIF, BMP, TIFF for self-hosted images. WebP and HEIC
+# are NOT accepted -- the optimize pass converts both to JPEG. With optimization
+# disabled, stage() refuses to upload them rather than letting publish fail.
+EBAY_SAFE_TYPES = {"image/jpeg", "image/png", "image/gif", "image/tiff"}
 
 GROUP_RE = re.compile(r"^(?P<group>.+)-(?P<index>\d+)$")
 
