@@ -93,8 +93,52 @@ Each runs standalone with `--help`.
 
 ## Credentials
 
-Stored in a chmod-600 file at `~/.ebay-lister.env`, overridable with
-`EBAY_LISTER_CREDS_FILE`; env vars take precedence. The access token is cached
-separately at `~/.ebay-lister-token.json`.
+Resolution order, first match wins:
 
-This repo is public. No credential is ever committed.
+1. Environment variable
+2. **macOS Keychain** via the built-in `security` CLI — where writes go by default
+3. `keyring` package, if installed (non-macOS hosts)
+4. chmod-600 file at `~/.ebay-lister.env` (fallback for hosts with no keychain)
+
+Keychain items use the service names `ebay-client-id`, `ebay-client-secret`,
+`ebay-redirect-uri`, `ebay-refresh-token` — readable with
+`security find-generic-password -s ebay-client-id -w`.
+
+The access token is cached separately at `~/.ebay-lister-token.json`.
+
+**This repo is public. No credential is ever committed** — not in a file, not
+in an example, not in git history. Values live in the Keychain.
+
+## Team rollout
+
+Everyone shares one MTGI eBay seller account, so teammates never need
+developer.ebay.com access. They need four values from you, delivered through
+whatever channel already carries the store login — **never through this repo**:
+
+| Keychain service | What it is |
+|---|---|
+| `ebay-client-id` | MTGI's eBay App ID |
+| `ebay-client-secret` | MTGI's eBay Cert ID |
+| `ebay-redirect-uri` | The RuName string |
+| `ebay-refresh-token` | From your one-time OAuth run — skips their browser flow entirely |
+
+Each teammate installs the plugin and stores them:
+
+```bash
+security add-generic-password -U -s ebay-client-id -a "$USER" -w '<value>'
+# …repeat for the other three
+```
+
+Then `/ebay-lister` works immediately — no `/ebay-setup` run, no browser
+consent, no eBay developer account.
+
+`/ebay-setup` is the owner's tool: run it once to mint the refresh token, and
+again in ~18 months when it expires.
+
+Sharing the refresh token is equivalent to sharing the store login, which the
+team already does — it grants no access they don't have. It is still a live
+credential: Keychain only, never a file, never a chat message that persists.
+
+Each teammate also needs R2 write access for image staging — a
+`CLOUDFLARE_API_TOKEN` scoped to R2, or `npx wrangler login`. Scoped tokens
+beat sharing account access.

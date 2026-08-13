@@ -1,13 +1,26 @@
 #!/usr/bin/env python3
 """Per-user credential store for the ebay-lister skill.
 
-Mirrors the resolution order used by rfq-normalizer's credentials.py so both
-plugins behave identically:
+Resolution order (first match wins):
 
   1. Environment variable (dev / CI / power users)
-  2. chmod-600 file (durable persistence -- survives sandbox resets)
-  3. System keyring (local Macs with a real backend)
-  4. None -- caller routes the user to /ebay-setup
+  2. macOS Keychain via the built-in `security` CLI
+  3. `keyring` PyPI package, if installed (non-macOS hosts)
+  4. chmod-600 file (fallback for hosts with no keychain, e.g. Cowork sandboxes)
+  5. None -- caller routes the user to /ebay-setup
+
+Keychain is preferred over the file deliberately. JDGTL's standing credential
+rule (05_System/credentials/REGISTRY.md, 2026-08-03) is that secret VALUES
+never live under Documents/ or in any plaintext file -- they belong in the
+macOS Keychain. Writes therefore go to the Keychain when one is reachable and
+only fall back to the file when it is not.
+
+The `security` CLI is used rather than the `keyring` package so this stays
+dependency-free, and so items land under the same service names the registry
+already documents:
+
+    security add-generic-password -U -s ebay-client-id -a <user> -w <value>
+    security find-generic-password -s ebay-client-id -w
 
 File path resolution:
   1. $EBAY_LISTER_CREDS_FILE      (explicit override)
@@ -25,8 +38,11 @@ CLI:
 from __future__ import annotations
 
 import argparse
+import getpass
 import json
 import os
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -38,25 +54,33 @@ try:
 except ImportError:
     _KEYRING_AVAILABLE = False
 
+# macOS ships `security`; everywhere else this is None and the keyring package
+# or the chmod-600 file takes over.
+_SECURITY_BIN = shutil.which("security") if sys.platform == "darwin" else None
+
 
 CREDENTIAL_SCHEMA: dict[str, dict[str, str]] = {
     "ebay_client_id": {
         "env": "EBAY_CLIENT_ID",
+        "keychain": "ebay-client-id",
         "label": "eBay App ID (Client ID)",
         "help": "From developer.ebay.com > Application Keys > Production.",
     },
     "ebay_client_secret": {
         "env": "EBAY_CLIENT_SECRET",
+        "keychain": "ebay-client-secret",
         "label": "eBay Cert ID (Client Secret)",
         "help": "From developer.ebay.com > Application Keys > Production.",
     },
     "ebay_redirect_uri": {
         "env": "EBAY_REDIRECT_URI",
+        "keychain": "ebay-redirect-uri",
         "label": "eBay RuName (redirect URI)",
         "help": "The RuName string, NOT a URL. developer.ebay.com > User Tokens > Get a Token from eBay via Your Application.",
     },
     "ebay_refresh_token": {
         "env": "EBAY_REFRESH_TOKEN",
+        "keychain": "ebay-refresh-token",
         "label": "eBay refresh token",
         "help": "Written by /ebay-setup after the one-time OAuth flow. Valid ~18 months.",
     },
@@ -160,6 +184,53 @@ def _file_get(name: str) -> str | None:
     return _file_read_all().get(CREDENTIAL_SCHEMA[name]["env"])
 
 
+def _keychain_service(name: str) -> str:
+    """Keychain service name, matching the registry's naming convention."""
+    return CREDENTIAL_SCHEMA[name].get("keychain") or f"ebay-lister-{name}"
+
+
+def _security_get(name: str) -> str | None:
+    """Read a generic password from the macOS Keychain."""
+    if not _SECURITY_BIN:
+        return None
+    proc = subprocess.run(
+        [_SECURITY_BIN, "find-generic-password", "-s", _keychain_service(name), "-w"],
+        capture_output=True,
+        text=True,
+    )
+    if proc.returncode != 0:
+        return None  # Item not found -- not an error here.
+    value = proc.stdout.strip()
+    return value or None
+
+
+def _security_set(name: str, value: str) -> bool:
+    """Upsert a generic password into the macOS Keychain. True on success."""
+    if not _SECURITY_BIN:
+        return False
+    proc = subprocess.run(
+        [
+            _SECURITY_BIN, "add-generic-password", "-U",
+            "-s", _keychain_service(name),
+            "-a", getpass.getuser(),
+            "-w", value,
+        ],
+        capture_output=True,
+        text=True,
+    )
+    return proc.returncode == 0
+
+
+def _security_delete(name: str) -> None:
+    if not _SECURITY_BIN:
+        return
+    subprocess.run(
+        [_SECURITY_BIN, "delete-generic-password", "-s", _keychain_service(name)],
+        capture_output=True,
+        text=True,
+    )
+
+
 def _keyring_get(name: str) -> str | None:
     if not _KEYRING_AVAILABLE:
         return None
@@ -169,53 +240,74 @@ def _keyring_get(name: str) -> str | None:
         return None
 
 
+def _keyring_usable() -> bool:
+    """True when the keyring package has a real backend behind it."""
+    if not _KEYRING_AVAILABLE:
+        return False
+    try:
+        keyring.get_password(KEYRING_SERVICE, "__probe__")
+        return True
+    except keyring.errors.NoKeyringError:
+        return False
+
+
 def get(name: str, use_default: bool = True) -> str | None:
     """Resolve a credential. Falls back to DEFAULTS unless use_default=False."""
     schema = _assert_known(name)
     env_value = os.environ.get(schema["env"])
     if env_value:
         return env_value
-    file_value = _file_get(name)
-    if file_value:
-        return file_value
+    kc_value = _security_get(name)
+    if kc_value:
+        return kc_value
     kr_value = _keyring_get(name)
     if kr_value:
         return kr_value
+    file_value = _file_get(name)
+    if file_value:
+        return file_value
     return DEFAULTS.get(name) if use_default else None
 
 
 def set_(name: str, value: str) -> None:
-    """Persist a credential to the chmod-600 file, or the keyring if unwritable."""
+    """Persist a credential to the Keychain, falling back to a chmod-600 file.
+
+    Keychain first: the standing rule is that secret values never sit in a
+    plaintext file. The file path exists only for hosts with no keychain
+    backend, where it is the sole storage that survives a session reset.
+    """
     _assert_known(name)
     if not value:
         raise ValueError(f"Refusing to store empty value for {name}")
     env_name = CREDENTIAL_SCHEMA[name]["env"]
+
+    if _security_set(name, value):
+        return
+    if _keyring_usable():
+        try:
+            keyring.set_password(KEYRING_SERVICE, name, value)
+            return
+        except keyring.errors.KeyringError:
+            pass  # Fall through to the file rather than losing the value.
+
     path = _creds_file_path()
     try:
         values = _file_read_all()
         values[env_name] = value
         _file_write_all(values)
-        return
     except OSError as file_err:
-        if not _KEYRING_AVAILABLE:
-            raise RuntimeError(
-                f"Could not write credentials file at {path}: {file_err}. "
-                f"Set the env var {env_name} instead, or set "
-                f"EBAY_LISTER_CREDS_FILE to a writable path."
-            ) from file_err
-        try:
-            keyring.set_password(KEYRING_SERVICE, name, value)
-        except keyring.errors.NoKeyringError as e:
-            raise RuntimeError(
-                f"Could not write {path} ({file_err}) and no system keyring is "
-                f"available ({e}). Set the env var {env_name} instead."
-            ) from e
+        raise RuntimeError(
+            f"No usable keyring, and could not write {path}: {file_err}. "
+            f"Set the env var {env_name} instead, or point "
+            f"EBAY_LISTER_CREDS_FILE at a writable path."
+        ) from file_err
 
 
 def delete(name: str) -> None:
-    """Remove a credential from both file and keyring. Silent if absent."""
+    """Remove a credential from Keychain, keyring, and file. Silent if absent."""
     _assert_known(name)
     env_name = CREDENTIAL_SCHEMA[name]["env"]
+    _security_delete(name)
     try:
         values = _file_read_all()
         if env_name in values:
@@ -247,10 +339,12 @@ def status() -> dict[str, dict]:
         }
         if os.environ.get(schema["env"]):
             entry.update(source="env", set=True)
-        elif file_values.get(schema["env"]):
-            entry.update(source="file", set=True)
+        elif _security_get(name):
+            entry.update(source="keychain", set=True)
         elif _keyring_get(name):
             entry.update(source="keyring", set=True)
+        elif file_values.get(schema["env"]):
+            entry.update(source="file", set=True)
         elif name in DEFAULTS:
             entry.update(source="default", set=True, value=DEFAULTS[name])
         out[name] = entry
@@ -264,6 +358,10 @@ def missing_required() -> list[str]:
 
 def backend_name() -> str:
     """Diagnostic -- where would set_() store a new value?"""
+    if _SECURITY_BIN:
+        return "keychain:macos-security"
+    if _keyring_usable():
+        return f"keyring:{KEYRING_SERVICE}"
     path = _creds_file_path()
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -273,7 +371,7 @@ def backend_name() -> str:
         os.unlink(probe)
         return f"file:{path}"
     except OSError:
-        return "keyring" if _KEYRING_AVAILABLE else "none"
+        return "none"
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -13,14 +13,18 @@ skill deliberately shares the lister's scripts — there is one credential store
 
 ## Steps
 
-### 0. Optional dependency
-
-`keyring` is only a fallback for hosts where the chmod-600 file isn't writable.
-Skip this unless step 1 reports the file backend is unavailable.
+### 0. Confirm where values will be stored
 
 ```bash
-python3 -m pip install --user keyring
+python3 "${CLAUDE_PLUGIN_ROOT}/skills/ebay-lister/scripts/credentials.py" backend
 ```
+
+`keychain:macos-security` is the expected answer on a Mac — values go to the
+macOS Keychain via the built-in `security` CLI, never to a plaintext file.
+
+If it reports `file:…`, you are on a host without a keychain (a sandbox).
+That's supported, but say so plainly: the credentials will sit in a chmod-600
+file, which is a weaker store.
 
 ### 1. Show current state
 
@@ -111,10 +115,32 @@ creates those in conversation. Say so rather than blocking here.
 On success, tell them: authenticate once, then `/ebay-lister` just works until
 the refresh token expires — the date is in the pre-flight output.
 
+## Teammates don't run this
+
+Everyone shares one MTGI seller account, so the refresh token this produces is
+the same for the whole team. Teammates get the four values out-of-band and
+store them directly:
+
+```bash
+security add-generic-password -U -s ebay-client-id -a "$USER" -w '<value>'
+```
+
+Services: `ebay-client-id`, `ebay-client-secret`, `ebay-redirect-uri`,
+`ebay-refresh-token`. Then `/ebay-lister` works with no browser flow and no
+eBay developer account. See the plugin README's "Team rollout" section.
+
+This skill is the account owner's tool — run once now, once in ~18 months.
+
 ## Notes
 
-- Credentials go to a chmod-600 file at `~/.ebay-lister.env` (override with
-  `EBAY_LISTER_CREDS_FILE`). Env vars take precedence over the file.
+- Values go to the **macOS Keychain** by default (service names above), falling
+  back to a chmod-600 file at `~/.ebay-lister.env` only where no keychain
+  exists. Env vars take precedence over both.
 - The access-token cache is separate, at `~/.ebay-lister-token.json`.
-- Never echo a secret back into the transcript. Confirm by label, not value.
-- `mtgi-skills` is a **public** repo. No credential ever gets committed.
+- **Never echo a secret back into the transcript.** Confirm by label, not value.
+  A pasted secret persists in session history — that is how leaks happen.
+- `mtgi-skills` is a **public** repo. No credential ever gets committed, and
+  `.gitignore` blocks `*.env` as a backstop.
+- Per JDGTL's standing rule (`05_System/credentials/REGISTRY.md`, 2026-08-03):
+  secret values never live under `Documents/`. Add a registry line for each new
+  Keychain item.
