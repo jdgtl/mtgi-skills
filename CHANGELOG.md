@@ -4,6 +4,41 @@ All notable changes to plugins in the `mtgi-skills` marketplace are recorded her
 This file follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); plugins
 are versioned independently and each entry notes which plugin it applies to.
 
+## ebay-lister
+
+### 0.1.0 — 2026-08-13
+
+#### Added
+- Initial release. Builds and publishes eBay listings conversationally — no app,
+  no database, no inventory system. Python stdlib only; `npx wrangler` and macOS
+  `sips` are shelled out to rather than pulling in dependencies.
+- `check_setup.py` — pre-flight over credentials, token, business policies,
+  inventory location, `npx`, Cloudflare auth, and the R2 public base. Missing
+  policies/locations are reported as fixable in-conversation, not as setup
+  failures.
+- `auth.py` — OAuth against a manually-built consent URL. eBay's own
+  "get OAuth URL" helpers emit a malformed URL (empty `state=`, trailing `hd=`,
+  a `signin.ebay.com/signin?ru=` wrapper eBay rejects with `invalid_request`),
+  so the URL is assembled from documented params with `%20`-joined scopes.
+  Access tokens are cached and refreshed silently; the operator authenticates
+  once per ~18-month refresh-token lifetime.
+- `r2_upload.py` — groups a flat photo folder by the existing
+  `<slug>-<unit>-<image#>` convention (one group = one physical unit = one
+  listing), downscales to eBay's recommended 1600px JPEG via `sips`, uploads to
+  R2, then HEAD-verifies every public URL before the listing is built.
+  `wrangler r2 object put` is called with `--remote`: Wrangler v4 made every
+  `r2 object` command default to local mode, so without it uploads land in a
+  local simulation, exit 0, and every eBay image URL 404s at publish.
+- `ebay_api.py` — Taxonomy category suggestions and per-category required
+  aspects, plus list/create/edit for the three business-policy families and
+  inventory locations. Policy `PUT` is documented as a full replace, not a patch.
+- `publish.py` — the `inventory_item → offer → publish` chain, idempotent by
+  SKU so a retry after a network failure cannot double-list. Validates title
+  length (80), condition enum, HTTPS images, location, and policies before
+  calling eBay. Appends every published listing to `~/.ebay-lister-listings.jsonl`.
+- `credentials.py` — chmod-600 store with env-var precedence and keyring
+  fallback, mirroring rfq-normalizer's resolution order.
+
 ## rfq-normalizer
 
 ### 0.9.4 — 2026-07-02

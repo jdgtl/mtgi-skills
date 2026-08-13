@@ -9,6 +9,11 @@
       "name": "rfq-normalizer",
       "source": "./rfq-normalizer",
       "description": "Normalize any vendor RFQ spreadsheet (xlsx/csv) into MTGI's canonical historical-import template. Auto-detects the header row and drops summary footers, extracts a clean MPN, splits free-text into five typed spec columns (capacity, interface, drive type, form factor, manufacturer), preserves extra vendor columns, normalizes conditions, fills drive specs with an offline part-number decoder engine (Brave web search as fallback), and composes a fallback description from confirmed specs — with per-cell provenance, a needs-review report, and vendor-SKU swap detection."
+    },
+    {
+      "name": "ebay-lister",
+      "source": "./ebay-lister",
+      "description": "Build and publish eBay listings conversationally. Groups local product photos by unit, stages them to Cloudflare R2 and verifies every public URL, resolves the eBay category and its required item aspects from the Taxonomy API, drafts the title and item specifics for operator approval, then runs the Sell Inventory chain (inventory item → offer → publish). Idempotent by SKU, never publishes without confirmation, and can inspect, create, and edit the business policies and inventory locations a listing depends on. OAuth once — the refresh token lasts ~18 months."
     }
   ]
 }
