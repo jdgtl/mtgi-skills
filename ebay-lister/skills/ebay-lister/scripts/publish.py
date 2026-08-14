@@ -157,6 +157,22 @@ def build_offer_payload(spec: dict) -> dict:
             "returnPolicyId": spec.get("returnPolicyId"),
         },
     }
+
+    # Best Offer lets a price come down quietly instead of via a public markdown,
+    # which matters on slow-moving parts where the asking price is the ceiling.
+    if spec.get("bestOfferEnabled"):
+        terms: dict = {"bestOfferEnabled": True}
+        if spec.get("autoAcceptPrice"):
+            terms["autoAcceptPrice"] = {
+                "value": str(spec["autoAcceptPrice"]),
+                "currency": spec.get("currency", "USD"),
+            }
+        if spec.get("autoDeclinePrice"):
+            terms["autoDeclinePrice"] = {
+                "value": str(spec["autoDeclinePrice"]),
+                "currency": spec.get("currency", "USD"),
+            }
+        payload["listingPolicies"]["bestOfferTerms"] = terms
     if spec.get("listingDescription") or spec.get("description"):
         payload["listingDescription"] = spec.get("listingDescription") or spec["description"]
     return payload
