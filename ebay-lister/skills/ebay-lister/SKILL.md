@@ -23,6 +23,7 @@ and let Python put the scripts directory on `sys.path`.
 | `r2_upload.py` | `scan` a photo folder, `stage` one group to R2. |
 | `ebay_api.py` | Category suggestions, required aspects, policies, locations. |
 | `publish.py` | `validate` / `dry-run` / `publish` a listing spec. |
+| `sales_history.py` | MTGI's own realized economics — what cleared, net of fees and labels. |
 | `auth.py` | OAuth. Only `/ebay-setup` should need it. |
 
 ## Workflow
@@ -57,6 +58,27 @@ listing. Ask when there is more than one group.
 
 Report `skipped` files and any per-file `warnings` (oversized, or a format eBay
 rejects for self-hosted images). Do not proceed with a group that has warnings.
+
+### 1b. Price from realized data, not asking prices
+
+Before proposing a price, check what MTGI has actually cleared:
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/skills/ebay-lister/scripts/sales_history.py" summary
+python3 "${CLAUDE_PLUGIN_ROOT}/skills/ebay-lister/scripts/sales_history.py" shipping
+```
+
+`summary` gives net-per-unit after fees and labels for anything MTGI has sold
+before. `shipping` gives the real label-cost profile — use the **mode**, not the
+mean, since one oversized shipment drags the mean badly.
+
+**Asking prices are not evidence.** On slow-moving enterprise gear, active
+listings routinely sit 3-4x above anything that has ever sold, with zero
+watchers. Market-wide sold data comes from Seller Hub -> Research -> Product
+Research (free, 3 years, includes accepted Best Offer prices); eBay's
+Marketplace Insights API returns 403 for this app and public sold-search
+scraping is walled off. If the operator has not pulled Product Research for the
+part, say so and price conservatively rather than anchoring on active asks.
 
 ### 2. Gather the listing facts
 
