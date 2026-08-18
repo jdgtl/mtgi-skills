@@ -6,6 +6,47 @@ are versioned independently and each entry notes which plugin it applies to.
 
 ## ebay-lister
 
+### 0.2.0 — 2026-08-18
+
+Live-tested: three real MTGI listings published end-to-end (StarTech
+ET91000SM20, Cisco C6800-16P10G, Enable-IT 828), two more drafted and held.
+
+#### Added
+- **Channel check (step 1c)** — `channel_check.py` + `brokerbin_api.py`.
+  Exact-SKU eBay figures (operator's Seller Hub Product Research screenshots,
+  filtered by the skill into `market/<MPN>.json`) vs live BrokerBin Search API
+  v2 (asks, quote requests, supply/demand; 60-day file cache; brand-filtered;
+  CALL-priced rows counted separately) → eBay-only / BrokerBin-only / combo net
+  at 3 and 6 months, a verdict with a one-line rationale, `--apply` records it
+  on the draft. Advice only, never a gate. Rules in `reference/channel-rules.md`,
+  market-file schema in `reference/market-json.md`. Keychain
+  `brokerbin-mtgi-api-token` (+ optional `brokerbin-mtgi-login`).
+- `publish.py update` — PUT inventory item + offer on a published SKU; eBay
+  applies live. Preserves the live available quantity unless `--set-quantity`;
+  writes a ledger row.
+- Spec fields `packageWeightAndSize`, `upc` / `ean` / `isbn`, `listingDescription`,
+  `unit_cost`, `eol_date`, `channel`.
+- `reference/description-template.md` — MTGI's HTML house template, extracted
+  from the sold listings; every listing uses it.
+- `tests/` — 23 pytest cases (`BROKERBIN_MOCK=1`, no network).
+
+#### Fixed
+- `dry-run` on an invalid spec reports the problem list instead of a KeyError.
+- `check_setup` distinguishes a policy-API failure from "no policy" (was
+  steering toward creating duplicates).
+- Graded used conditions are per-category (61816 rejects `USED_GOOD`; use
+  plain `USED_EXCELLENT` = 3000) — documented in `conditions.md`.
+- `/ebay-setup` no longer asks for secrets in chat; operator stores them in
+  Keychain via a terminal one-liner and the skill verifies presence only.
+
+#### Learned (documented, not code)
+- Category 11175 requires a UPC (error 25002); a matching UPC triggers eBay
+  catalog adoption (category + item specifics replaced by the catalog product,
+  cannot be shed via the Inventory API).
+- eBay's service code for USPS Ground Advantage is `USPSParcel`.
+- Free + calculated shipping in one policy works: costType CALCULATED with
+  `freeShipping: true` on the first service.
+
 ### 0.1.0 — 2026-08-13
 
 #### Added
