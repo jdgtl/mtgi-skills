@@ -109,6 +109,10 @@ def compute(market: dict, draft: dict, bb: dict, rules: dict = RULES,
         flags.append("no BrokerBin asks for this MPN — BrokerBin scenarios n/a")
     if eol_months is not None:
         flags.append("EOL cap active (%s → %.1f months; salvage %.0f%%)" % (draft["eol_date"], eol_months, salvage_share * 100))
+    if bb.get("other_brand_rows"):
+        flags.append("BrokerBin: %d rows for other manufacturers dropped (keyword match on '%s')" % (bb["other_brand_rows"], market["mpn"]))
+    if bb.get("unpriced_listings"):
+        flags.append("BrokerBin: %d CALL-priced listings not in the median" % bb["unpriced_listings"])
     if bb.get("ours"):
         flags.append("MTGI already on BrokerBin at $%.0f × %d — sync qty after eBay sales" % (bb["ours"]["price"], bb["ours"]["qty"]))
 
@@ -194,8 +198,8 @@ def render(r: dict) -> str:
     lines.append("eBay      net/unit $%.2f · pace %.2f/mo · label $%.0f · fvf %.0f%%" %
                  (r["n_e"], r["p_e"], r["label"], r["assumptions"]["fvf"] * 100))
     ours = e.get("ours")
-    lines.append("BrokerBin %d sellers · med ask %s · qty %d · RFQ/90d %d · searches/90d %s · Micro Technologies: %s" %
-                 (e.get("sellers", 0), "n/a" if e.get("ask_med") is None else "$%.0f" % e["ask_med"],
+    lines.append("BrokerBin %d sellers (%d priced) · med ask %s · qty %d · RFQ/90d %d · searches/90d %s · Micro Technologies: %s" %
+                 (e.get("sellers", 0), e.get("priced_listings", 0), "n/a" if e.get("ask_med") is None else "$%.0f" % e["ask_med"],
                   e.get("qty_total", 0), e.get("rfq90", 0), e.get("searches_90d", "n/a"),
                   "not listed" if not ours else "$%.0f × %d" % (ours["price"], ours["qty"])))
     lines.append("                       3 mo net     6 mo net     unbounded")
@@ -278,7 +282,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         api = brokerbin_api.BrokerBinAPI.from_credentials(cache_path=market_dir / ".brokerbin-cache.json", refresh=a.refresh)
         mpn = draft.get("mpn") or market["mpn"]
-        bb = brokerbin_api.summarize(api.search(mpn), api.rfq(mpn), api.supply_demand(mpn))
+        bb = brokerbin_api.summarize(api.search(mpn), api.rfq(mpn), api.supply_demand(mpn),
+                                     brand=draft.get("brand"))
         quota = api.last_quota
     except brokerbin_api.BrokerBinError as e:
         print(f"BrokerBin unavailable: {e}", file=sys.stderr)

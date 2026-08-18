@@ -9,7 +9,7 @@ FIX = Path(__file__).parent / "fixtures"
 MARKET = json.loads((FIX / "hd223_market.json").read_text())
 DRAFT = json.loads((FIX / "hd223_draft.json").read_text())
 BBFIX = json.loads((FIX / "brokerbin_hd223.json").read_text())
-BB = bb.summarize(BBFIX["search"], BBFIX["rfq"], BBFIX["supply_demand"])
+BB = bb.summarize(BBFIX["search"], BBFIX["rfq"], BBFIX["supply_demand"], brand="BrightSign")
 TODAY = date(2026, 8, 18)
 
 

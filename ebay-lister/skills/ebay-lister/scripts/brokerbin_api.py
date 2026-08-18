@@ -68,7 +68,8 @@ class BrokerBinAPI:
                    cache_path=cache_path, refresh=refresh)
 
     # ── public endpoints ────────────────────────────────────────────────
-    def search(self, mpn: str, priced: bool = True, size: int = 50) -> dict:
+    def search(self, mpn: str, priced: bool = False, size: int = 50) -> dict:
+        """All listings by default -- priced and CALL-priced -- so one call counts both."""
         params = {"query": mpn, "size": str(size)}
         if priced:
             params["priced"] = "1"
@@ -153,16 +154,36 @@ def _num(v, default: float = 0.0) -> float:
         return default
 
 
-def summarize(search: dict, rfq: dict, supply: dict, our_company: str = OUR_COMPANY) -> dict:
+def _norm(s: str) -> str:
+    return "".join(ch for ch in str(s).upper() if ch.isalnum())
+
+
+def summarize(search: dict, rfq: dict, supply: dict, our_company: str = OUR_COMPANY,
+              brand: str | None = None) -> dict:
     """Collapse the three raw responses into the numbers the channel check needs.
 
     The median ask excludes our own listing (we are pricing against the
-    market, not ourselves); qty_total includes it.
+    market, not ourselves) and unpriced (CALL) rows; qty_total includes both.
+    When `brand` is given, rows whose manufacturer does not fuzzy-match it are
+    dropped (BrokerBin keyword search on a short MPN like "828" matches
+    unrelated parts); the count dropped is reported as `other_brand_rows`.
     """
     rows = search.get("data") or []
+    other_brand = 0
+    if brand:
+        b = _norm(brand)
+        kept = []
+        for r in rows:
+            m = _norm(r.get("mfg") or r.get("manufacturer") or "")
+            if m and (m == b or b in m or m in b):
+                kept.append(r)
+            else:
+                other_brand += 1
+        rows = kept
     ours = None
     asks: list[float] = []
     qty_total = 0
+    unpriced = 0
     conditions: dict[str, int] = {}
     for r in rows:
         price = _num(r.get("price"), 0.0)
@@ -175,6 +196,8 @@ def summarize(search: dict, rfq: dict, supply: dict, our_company: str = OUR_COMP
             continue
         if price > 0:
             asks.append(price)
+        else:
+            unpriced += 1
     # Real v2 shapes (observed 2026-08-18): rfq rows {"date","rfqs"};
     # supply-demand rows {"date","searches","avg_total_qty"}.
     rfq_rows = rfq.get("data") or []
@@ -184,6 +207,8 @@ def summarize(search: dict, rfq: dict, supply: dict, our_company: str = OUR_COMP
     return {
         "sellers": len(rows),
         "priced_listings": len(asks) + (1 if ours and ours["price"] > 0 else 0),
+        "unpriced_listings": unpriced,
+        "other_brand_rows": other_brand,
         "ask_med": statistics.median(asks) if asks else None,
         "ask_min": min(asks) if asks else None,
         "qty_total": qty_total,
@@ -201,11 +226,12 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("cmd", choices=["search", "rfq", "supply", "stats", "summary"])
     p.add_argument("mpn")
     p.add_argument("--refresh", action="store_true")
+    p.add_argument("--brand", default=None, help="fuzzy manufacturer filter for summary")
     a = p.parse_args(argv)
     try:
         api = BrokerBinAPI.from_credentials(refresh=a.refresh)
         if a.cmd == "summary":
-            out = summarize(api.search(a.mpn), api.rfq(a.mpn), api.supply_demand(a.mpn))
+            out = summarize(api.search(a.mpn), api.rfq(a.mpn), api.supply_demand(a.mpn), brand=a.brand)
         else:
             out = {"search": api.search, "rfq": api.rfq, "supply": api.supply_demand, "stats": api.stats}[a.cmd](a.mpn)
         print(json.dumps({"quota": api.last_quota, "result": out}, indent=2))

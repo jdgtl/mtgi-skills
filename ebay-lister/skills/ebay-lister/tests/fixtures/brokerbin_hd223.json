@@ -1,7 +1,7 @@
 {
   "search": {
     "meta": {
-      "total": 4,
+      "total": 6,
       "request": {
         "count": 1,
         "limit": 50
@@ -63,6 +63,26 @@
         "company": "Micro Technologies",
         "country": "USA",
         "age_in_days": 0
+      },
+      {
+        "mfg": "BRIGHTSIGN",
+        "part": "HD223",
+        "cond": "USED",
+        "price": "0",
+        "qty": "3",
+        "company": "CallMe Inc",
+        "country": "USA",
+        "age_in_days": 2
+      },
+      {
+        "mfg": "HP",
+        "part": "HD223A",
+        "cond": "NEW",
+        "price": "500",
+        "qty": "1",
+        "company": "Unrelated",
+        "country": "USA",
+        "age_in_days": 2
       }
     ]
   },

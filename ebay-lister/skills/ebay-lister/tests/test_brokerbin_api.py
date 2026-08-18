@@ -24,17 +24,19 @@ FIX = Path(__file__).parent / "fixtures" / "brokerbin_hd223.json"
 def test_mock_search_shape(tmp_path):
     api = bb.BrokerBinAPI(token="x", mock=True, cache_path=tmp_path / "c.json")
     r = api.search("HD223")
-    assert r["meta"]["total"] == 4 and len(r["data"]) == 4
+    assert r["meta"]["total"] == 6 and len(r["data"]) == 6
 
 
 def test_summarize_excludes_our_listing():
     fx = json.loads(FIX.read_text())
-    s = bb.summarize(fx["search"], fx["rfq"], fx["supply_demand"])
-    assert s["sellers"] == 4
+    s = bb.summarize(fx["search"], fx["rfq"], fx["supply_demand"], brand="BrightSign")
+    assert s["sellers"] == 5             # HP row dropped by brand filter
+    assert s["other_brand_rows"] == 1
+    assert s["unpriced_listings"] == 1   # CALL-priced row
     assert s["ours"] == {"price": 42.0, "qty": 17}
-    assert s["ask_med"] == 45.0          # median of 38, 45, 60 (ours excluded)
+    assert s["ask_med"] == 45.0          # median of 38, 45, 60 (ours + unpriced excluded)
     assert s["ask_min"] == 38.0
-    assert s["qty_total"] == 37          # 12 + 6 + 2 + 17
+    assert s["qty_total"] == 40          # 12 + 6 + 2 + 17 + 3
     assert s["rfq90"] == 2
     assert s["supply_qty_latest"] == 198 and s["matches_latest"] == 29
 
@@ -62,7 +64,7 @@ def test_refresh_bypasses_cache(tmp_path):
     api.search("HD223")
     api2 = bb.BrokerBinAPI(token="x", mock=True, cache_path=tmp_path / "c.json", refresh=True)
     r = api2.search("HD223")
-    assert r["meta"]["total"] == 4
+    assert r["meta"]["total"] == 6
 
 
 def test_missing_token_names_keychain_item():
