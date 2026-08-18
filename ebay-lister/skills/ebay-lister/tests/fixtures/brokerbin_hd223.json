@@ -1,0 +1,136 @@
+{
+  "search": {
+    "meta": {
+      "total": 6,
+      "request": {
+        "count": 1,
+        "limit": 50
+      },
+      "manufacturers": [
+        {
+          "key": "BRIGHTSIGN",
+          "doc_count": 4
+        }
+      ],
+      "conditions": [
+        {
+          "key": "USED",
+          "doc_count": 3
+        },
+        {
+          "key": "REF",
+          "doc_count": 1
+        }
+      ]
+    },
+    "data": [
+      {
+        "mfg": "BRIGHTSIGN",
+        "part": "HD223",
+        "cond": "USED",
+        "price": "38",
+        "qty": "12",
+        "company": "Signage Surplus",
+        "country": "USA",
+        "age_in_days": 3
+      },
+      {
+        "mfg": "BRIGHTSIGN",
+        "part": "HD223",
+        "cond": "USED",
+        "price": "45",
+        "qty": "6",
+        "company": "AV Brokers",
+        "country": "USA",
+        "age_in_days": 10
+      },
+      {
+        "mfg": "BRIGHTSIGN",
+        "part": "HD223",
+        "cond": "REF",
+        "price": "60",
+        "qty": "2",
+        "company": "RefurbCo",
+        "country": "GBR",
+        "age_in_days": 1
+      },
+      {
+        "mfg": "BRIGHTSIGN",
+        "part": "HD223",
+        "cond": "USED",
+        "price": "42",
+        "qty": "17",
+        "company": "Micro Technologies",
+        "country": "USA",
+        "age_in_days": 0
+      },
+      {
+        "mfg": "BRIGHTSIGN",
+        "part": "HD223",
+        "cond": "USED",
+        "price": "0",
+        "qty": "3",
+        "company": "CallMe Inc",
+        "country": "USA",
+        "age_in_days": 2
+      },
+      {
+        "mfg": "HP",
+        "part": "HD223A",
+        "cond": "NEW",
+        "price": "500",
+        "qty": "1",
+        "company": "Unrelated",
+        "country": "USA",
+        "age_in_days": 2
+      }
+    ]
+  },
+  "rfq": {
+    "meta": {
+      "request": {
+        "count": 2,
+        "limit": 50
+      }
+    },
+    "data": [
+      {
+        "date": "2026-06-01 00:00:00",
+        "rfqs": 1
+      },
+      {
+        "date": "2026-07-01 00:00:00",
+        "rfqs": 1
+      }
+    ]
+  },
+  "supply_demand": {
+    "meta": {
+      "request": {
+        "count": 3,
+        "limit": 50
+      }
+    },
+    "data": [
+      {
+        "date": "2026-07-01 00:00:00",
+        "searches": 34,
+        "avg_total_qty": 210
+      },
+      {
+        "date": "2026-08-01 00:00:00",
+        "searches": 29,
+        "avg_total_qty": 198
+      }
+    ]
+  },
+  "stats": {
+    "meta": {
+      "request": {
+        "count": 4,
+        "limit": 50
+      }
+    },
+    "data": []
+  }
+}

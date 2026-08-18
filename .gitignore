@@ -4,3 +4,13 @@ __pycache__/
 *.pyo
 .cache/
 .pytest_cache/
+
+# Credentials never belong in this repo — it is public, and git history is
+# permanent. Values live in the macOS Keychain; see
+# 05_System/credentials/REGISTRY.md.
+*.env
+.env
+.env.*
+!.env.example
+*.pem
+*.key
