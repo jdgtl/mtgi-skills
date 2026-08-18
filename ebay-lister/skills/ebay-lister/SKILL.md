@@ -122,6 +122,9 @@ Write and show the operator:
   like "L@@K" or "WOW".
 - **Description** — plain, factual, what's included, tested state, cosmetic
   condition. No invented claims about testing you weren't told about.
+- **Listing body (`listingDescription`)** — the same facts in MTGI's HTML house
+  template, `reference/description-template.md`. Every live listing uses it;
+  do not freestyle the layout.
 - **Item specifics** — the aspects from step 4.
 - **Condition description** — the honest specifics for a used item.
 

@@ -39,7 +39,8 @@ then `publish` it.
 |---|---|---|
 | `sku` | yes | Convention `MTGI-<MPN-or-slug>-<unit>`. MPN verbatim. Idempotency key. |
 | `title` | yes | **80 chars max.** Hard eBay limit; `validate` enforces it. |
-| `description` | no | Becomes both the product description and the listing description. |
+| `description` | no | Plain text → `product.description` (4000-char cap). Also the listing body if `listingDescription` is absent. |
+| `listingDescription` | no | HTML listing body. **Use the house template in `description-template.md`.** |
 | `condition` | yes | MTGI vocabulary or an eBay enum — see `conditions.md`. |
 | `conditionDescription` | no | Free text. Only meaningful for used conditions. |
 | `quantity` | no | Defaults to 1. Sets both item availability and offer quantity. |

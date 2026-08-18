@@ -290,6 +290,42 @@ def publish(spec: dict) -> dict:
     return result
 
 
+def update(spec: dict) -> dict:
+    """Push spec changes to an already-published listing.
+
+    eBay applies inventory-item and offer PUTs to the live listing when the
+    offer is published, so no publish call is needed. Refuses if the SKU has
+    no offer yet -- use `publish` for that.
+    """
+    problems = validate(spec)
+    if problems:
+        raise SpecError("Spec is not publishable:\n  " + "\n  ".join(problems))
+    sku = spec["sku"]
+    existing = find_existing_offer(sku)
+    if not existing or not existing.get("offerId"):
+        raise SpecError(f"No offer exists for {sku}; use `publish`.")
+    offer_id = existing["offerId"]
+    ebay_api.request(
+        "PUT",
+        f"/sell/inventory/v1/inventory_item/{urllib.parse.quote(sku)}",
+        build_inventory_item_payload(spec),
+    )
+    ebay_api.request(
+        "PUT", f"/sell/inventory/v1/offer/{urllib.parse.quote(offer_id)}", build_offer_payload(spec)
+    )
+    fresh = ebay_api.request("GET", f"/sell/inventory/v1/offer/{urllib.parse.quote(offer_id)}") or {}
+    listing = fresh.get("listing") or {}
+    return {
+        "success": True,
+        "sku": sku,
+        "offerId": offer_id,
+        "status": fresh.get("status"),
+        "listingId": listing.get("listingId"),
+        "listingStatus": listing.get("listingStatus"),
+        "listingUrl": f"https://www.ebay.com/itm/{listing['listingId']}" if listing.get("listingId") else None,
+    }
+
+
 def _load(path: str) -> dict:
     return json.loads(Path(path).expanduser().read_text())
 
@@ -297,7 +333,7 @@ def _load(path: str) -> dict:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Publish an eBay listing")
     sub = parser.add_subparsers(dest="cmd", required=True)
-    for name in ("validate", "dry-run", "publish"):
+    for name in ("validate", "dry-run", "publish", "update"):
         p = sub.add_parser(name)
         p.add_argument("spec")
     args = parser.parse_args(argv)
@@ -322,6 +358,9 @@ def main(argv: list[str] | None = None) -> int:
                 )
             )
             return 0 if not problems else 1
+        if args.cmd == "update":
+            print(json.dumps(update(spec), indent=2))
+            return 0
         print(json.dumps(publish(spec), indent=2))
     except (SpecError, EbayApiError, json.JSONDecodeError, OSError) as e:
         print(str(e), file=sys.stderr)
