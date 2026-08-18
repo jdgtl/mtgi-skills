@@ -133,6 +133,11 @@ def build_inventory_item_payload(spec: dict) -> dict:
     }
     if spec.get("conditionDescription"):
         payload["conditionDescription"] = spec["conditionDescription"]
+    # Optional. eBay uses it to pre-fill label purchase and to quote any
+    # calculated-cost service on the fulfillment policy. Passed through as-is
+    # in eBay's own shape: {"weight": {"value", "unit"}, "dimensions": {...}}.
+    if spec.get("packageWeightAndSize"):
+        payload["packageWeightAndSize"] = spec["packageWeightAndSize"]
     return payload
 
 

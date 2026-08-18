@@ -50,6 +50,7 @@ then `publish` it.
 | `mpn` | no | Fills `product.mpn`. **Verbatim.** |
 | `aspects` | no | `{name: value}` or `{name: [values]}`. Every *required* aspect for the category must be present or publish fails. |
 | `imageUrls` | yes | HTTPS only, ordered. From `r2_upload.py stage`. First is the gallery image. |
+| `packageWeightAndSize` | no | eBay shape, passed through: `{"weight": {"value": 2, "unit": "POUND"}, "dimensions": {"length": 8, "width": 6, "height": 4, "unit": "INCH"}}`. Pre-fills label purchase; required for calculated-cost services. |
 | `merchantLocationKey` | yes | From `ebay_api.py locations`. |
 | `fulfillmentPolicyId` | yes | From `ebay_api.py policies`. |
 | `paymentPolicyId` | yes | Same. |
