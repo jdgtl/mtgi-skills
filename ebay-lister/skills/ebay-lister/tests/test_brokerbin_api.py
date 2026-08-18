@@ -54,9 +54,8 @@ def test_cache_hit_avoids_network(tmp_path, monkeypatch):
         calls["n"] += 1
         raise AssertionError("network should not be called")
     monkeypatch.setattr(api, "_fetch", boom)
-    api.search("HD223")                  # served from cache
-    assert calls["n"] == 0
-    assert (tmp_path / "c.json").exists()
+    api.search("HD223")                  # served from the in-memory cache
+    assert calls["n"] == 0               # (mock mode never writes the cache file)
 
 
 def test_refresh_bypasses_cache(tmp_path):
@@ -77,3 +76,19 @@ def test_last_quota_surfaced(tmp_path):
     api = bb.BrokerBinAPI(token="x", mock=True, cache_path=tmp_path / "c.json")
     api.search("HD223")
     assert api.last_quota == {"count": 1, "limit": 50}
+
+
+def test_history_cache_keys_are_month_stable(tmp_path):
+    api = bb.BrokerBinAPI(token="x", mock=True, cache_path=tmp_path / "c.json")
+    api.rfq("HD223"); api.supply_demand("HD223")
+    keys = [k for k in api._cache if "history" in k]
+    assert len(keys) == 2
+    for k in keys:
+        frm = json.loads(k.split("|", 1)[1])["from"]
+        assert frm.endswith("-01")
+
+
+def test_mock_does_not_write_cache_file(tmp_path):
+    api = bb.BrokerBinAPI(token="x", mock=True, cache_path=tmp_path / "c.json")
+    api.search("HD223")
+    assert not (tmp_path / "c.json").exists()

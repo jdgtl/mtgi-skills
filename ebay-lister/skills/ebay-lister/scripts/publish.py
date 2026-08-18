@@ -290,12 +290,17 @@ def publish(spec: dict) -> dict:
     return result
 
 
-def update(spec: dict) -> dict:
+def update(spec: dict, set_quantity: bool = False) -> dict:
     """Push spec changes to an already-published listing.
 
     eBay applies inventory-item and offer PUTs to the live listing when the
     offer is published, so no publish call is needed. Refuses if the SKU has
     no offer yet -- use `publish` for that.
+
+    Quantity is NOT taken from the spec by default: units sell between edits,
+    and re-sending the draft's quantity would resurrect sold units (oversell).
+    The live available quantity is read from the offer and preserved unless
+    `set_quantity=True` (CLI `--set-quantity`).
     """
     problems = validate(spec)
     if problems:
@@ -305,17 +310,22 @@ def update(spec: dict) -> dict:
     if not existing or not existing.get("offerId"):
         raise SpecError(f"No offer exists for {sku}; use `publish`.")
     offer_id = existing["offerId"]
+    live = ebay_api.request("GET", f"/sell/inventory/v1/offer/{urllib.parse.quote(offer_id)}") or {}
+    live_qty = live.get("availableQuantity")
+    effective = dict(spec)
+    if not set_quantity and live_qty is not None:
+        effective["quantity"] = int(live_qty)
     ebay_api.request(
         "PUT",
         f"/sell/inventory/v1/inventory_item/{urllib.parse.quote(sku)}",
-        build_inventory_item_payload(spec),
+        build_inventory_item_payload(effective),
     )
     ebay_api.request(
-        "PUT", f"/sell/inventory/v1/offer/{urllib.parse.quote(offer_id)}", build_offer_payload(spec)
+        "PUT", f"/sell/inventory/v1/offer/{urllib.parse.quote(offer_id)}", build_offer_payload(effective)
     )
     fresh = ebay_api.request("GET", f"/sell/inventory/v1/offer/{urllib.parse.quote(offer_id)}") or {}
     listing = fresh.get("listing") or {}
-    return {
+    result = {
         "success": True,
         "sku": sku,
         "offerId": offer_id,
@@ -323,7 +333,28 @@ def update(spec: dict) -> dict:
         "listingId": listing.get("listingId"),
         "listingStatus": listing.get("listingStatus"),
         "listingUrl": f"https://www.ebay.com/itm/{listing['listingId']}" if listing.get("listingId") else None,
+        "quantity": effective.get("quantity"),
+        "quantity_source": "spec (--set-quantity)" if set_quantity else "live offer (preserved)",
     }
+    if not set_quantity and live_qty is not None and int(spec.get("quantity", live_qty)) != int(live_qty):
+        result["warning"] = (f"spec quantity {spec.get('quantity')} != live {live_qty}; kept live. "
+                             f"Pass --set-quantity to push the spec value.")
+    _append_ledger(
+        {
+            "listed_at": datetime.now(timezone.utc).isoformat(),
+            "action": "update",
+            "listed_by": spec.get("listed_by") or os.environ.get("USER") or "unknown",
+            "sku": sku,
+            "title": spec["title"],
+            "price": str(spec["price"]),
+            "currency": spec.get("currency", "USD"),
+            "quantity": effective.get("quantity"),
+            "offerId": offer_id,
+            "listingId": listing.get("listingId"),
+            "listingUrl": result["listingUrl"],
+        }
+    )
+    return result
 
 
 def _load(path: str) -> dict:
@@ -336,6 +367,9 @@ def main(argv: list[str] | None = None) -> int:
     for name in ("validate", "dry-run", "publish", "update"):
         p = sub.add_parser(name)
         p.add_argument("spec")
+        if name == "update":
+            p.add_argument("--set-quantity", action="store_true",
+                           help="push the spec's quantity to the live listing (default: keep the live available quantity)")
     args = parser.parse_args(argv)
 
     try:
@@ -346,23 +380,19 @@ def main(argv: list[str] | None = None) -> int:
             return 0 if not problems else 1
         if args.cmd == "dry-run":
             problems = validate(spec)
-            print(
-                json.dumps(
-                    {
-                        "ok": not problems,
-                        "problems": problems,
-                        "inventory_item": build_inventory_item_payload(spec),
-                        "offer": build_offer_payload(spec),
-                    },
-                    indent=2,
-                )
-            )
+            out = {"ok": not problems, "problems": problems}
+            if not problems:
+                # Only build payloads for a spec that passed validation -- the
+                # builders index required keys directly.
+                out["inventory_item"] = build_inventory_item_payload(spec)
+                out["offer"] = build_offer_payload(spec)
+            print(json.dumps(out, indent=2))
             return 0 if not problems else 1
         if args.cmd == "update":
-            print(json.dumps(update(spec), indent=2))
+            print(json.dumps(update(spec, set_quantity=getattr(args, "set_quantity", False)), indent=2))
             return 0
         print(json.dumps(publish(spec), indent=2))
-    except (SpecError, EbayApiError, json.JSONDecodeError, OSError) as e:
+    except (SpecError, EbayApiError, json.JSONDecodeError, OSError, KeyError) as e:
         print(str(e), file=sys.stderr)
         return 1
     return 0

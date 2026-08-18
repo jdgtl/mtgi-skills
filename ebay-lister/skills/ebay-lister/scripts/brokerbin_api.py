@@ -75,14 +75,20 @@ class BrokerBinAPI:
             params["priced"] = "1"
         return self._get("/part/search", params, kind="search")
 
+    @staticmethod
+    def _month_start(days_back: int) -> str:
+        """First day of the month `days_back` days ago -- keeps cache keys stable within a month."""
+        d = date.today() - timedelta(days=days_back)
+        return d.replace(day=1).isoformat()
+
     def rfq(self, mpn: str, days: int = 90) -> dict:
-        since = (date.today() - timedelta(days=days)).isoformat()
-        return self._get("/part/history/rfq", {"query": mpn, "from": since, "interval": "month"}, kind="rfq")
+        return self._get("/part/history/rfq",
+                         {"query": mpn, "from": self._month_start(days), "interval": "month"}, kind="rfq")
 
     def supply_demand(self, mpn: str, months: int = 12) -> dict:
-        since = (date.today() - timedelta(days=30 * months)).isoformat()
         return self._get("/part/history/supply-demand",
-                         {"query": mpn, "from": since, "interval": "month"}, kind="supply_demand")
+                         {"query": mpn, "from": self._month_start(30 * months), "interval": "month"},
+                         kind="supply_demand")
 
     def stats(self, mpn: str) -> dict:
         return self._get("/part/history/stats", {"query": mpn}, kind="stats")
@@ -99,7 +105,8 @@ class BrokerBinAPI:
         if isinstance(meta, dict) and isinstance(meta.get("request"), dict):
             self.last_quota = {"count": meta["request"].get("count"), "limit": meta["request"].get("limit")}
         self._cache[key] = {"at": datetime.now(timezone.utc).isoformat(), "body": body}
-        self._save_cache()
+        if not self.mock:          # fixtures never pollute the real cache file
+            self._save_cache()
         return body
 
     def _fetch(self, path: str, params: dict, kind: str) -> dict:
@@ -124,12 +131,19 @@ class BrokerBinAPI:
                     raise BrokerBinError(
                         f"BrokerBin auth failed ({e.code}). Check Keychain item `brokerbin-mtgi-api-token`.") from None
                 if e.code == 429:
-                    time.sleep(int(e.headers.get("Retry-After", "5")))
+                    last = e
+                    try:
+                        retry = min(int(e.headers.get("Retry-After", "5")), 60)
+                    except ValueError:      # HTTP-date form or garbage
+                        retry = 5
+                    time.sleep(retry)
                     continue
                 last = e
             except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as e:
                 last = e
             time.sleep(2 ** attempt)
+        if isinstance(last, urllib.error.HTTPError) and last.code == 429:
+            raise BrokerBinError("BrokerBin quota exhausted (429) — try again tomorrow or use cached results.")
         raise BrokerBinError(f"BrokerBin request failed after {MAX_RETRIES} tries: {last}")
 
     def _load_cache(self) -> dict:

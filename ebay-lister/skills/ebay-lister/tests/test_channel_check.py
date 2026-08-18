@@ -123,3 +123,26 @@ def test_main_missing_market_file_is_a_clear_message(tmp_path, capsys, monkeypat
     rc = cc.main(["MTGI-HD223", "--market-dir", str(tmp_path / "market"), "--drafts-dir", str(tmp_path / "drafts")])
     assert rc == 0
     assert "market/HD223.json" in capsys.readouterr().err
+
+
+def test_volume_seller_without_price_is_ignored():
+    m = json.loads(json.dumps(MARKET))
+    m["ebay"]["volume_seller"] = {"seller": "foo", "units": 40}     # no price_allin
+    m["ebay"]["watchers_max"] = 5
+    assert cc.pick_share(m, 49.95) == (0.40, "default")
+    m["ebay"]["volume_seller"] = {"price_allin": None}
+    assert cc.pick_share(m, 49.95) == (0.40, "default")
+
+
+def test_apply_skipped_when_brokerbin_unavailable(tmp_path, capsys, monkeypatch):
+    monkeypatch.setenv("BROKERBIN_MOCK", "0")
+    monkeypatch.setattr(cc.brokerbin_api.BrokerBinAPI, "from_credentials",
+                        classmethod(lambda cls, **k: (_ for _ in ()).throw(cc.brokerbin_api.BrokerBinError("quota"))))
+    (tmp_path / "market").mkdir(); (tmp_path / "drafts").mkdir()
+    (tmp_path / "market" / "HD223.json").write_text(json.dumps(MARKET))
+    dp = tmp_path / "drafts" / "MTGI-HD223.json"; dp.write_text(json.dumps(DRAFT))
+    rc = cc.main(["MTGI-HD223", "--market-dir", str(tmp_path / "market"), "--drafts-dir", str(tmp_path / "drafts"), "--apply"])
+    assert rc == 0
+    err = capsys.readouterr().err
+    assert "not applied" in err
+    assert "channel" not in json.loads(dp.read_text())

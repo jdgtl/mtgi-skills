@@ -94,7 +94,15 @@ def check_policies() -> list[dict]:
 
     out = []
     for kind in ("fulfillment", "payment", "return"):
-        entries = [p for p in policies.get(kind, []) if p.get("policyId")]
+        rows = policies.get(kind, [])
+        errors = [p["error"] for p in rows if isinstance(p, dict) and p.get("error")]
+        if errors:
+            # An API failure is not "no policy" -- creating one would duplicate.
+            out.append(_check(f"policy:{kind}", "fail",
+                              f"Could not read {kind} policies: {errors[0][:160]}",
+                              "Fix the API error (scope/outage) before creating anything."))
+            continue
+        entries = [p for p in rows if p.get("policyId")]
         if entries:
             names = ", ".join(p["name"] for p in entries[:3] if p.get("name"))
             out.append(_check(f"policy:{kind}", "ok", f"{len(entries)} found ({names})"))

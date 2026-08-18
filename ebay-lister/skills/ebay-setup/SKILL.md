@@ -37,20 +37,35 @@ play, not a stored value — that's fine for the R2 settings.
 
 ### 2. Collect the eBay app keys
 
-Prompt for any required credential that is unset, using AskUserQuestion or an
-elicitation form. Labels and help text:
+For any required credential that is unset, **do not ask for the value in
+chat and do not accept a paste** — a value in the transcript is an exposed
+value that has to be rotated. Instead, name the credential and hand the
+operator this to run in a **separate terminal** (`-w` last, so it prompts and
+the value never appears in a command line, transcript, `ps`, or shell
+history):
 
-| Credential | Label | Help |
+| Credential | Keychain item | Where to get it |
 |---|---|---|
-| `ebay_client_id` | eBay App ID (Client ID) | developer.ebay.com → Application Keys → Production |
-| `ebay_client_secret` | eBay Cert ID (Client Secret) | Same page. Treat as a secret. |
-| `ebay_redirect_uri` | eBay RuName | developer.ebay.com → User Tokens. This is the **RuName string, not a URL**. |
-
-Store each:
+| `ebay_client_id` | `ebay-client-id` | developer.ebay.com → Application Keys → Production (App ID) |
+| `ebay_client_secret` | `ebay-client-secret` | Same page (Cert ID). Secret. |
+| `ebay_redirect_uri` | `ebay-redirect-uri` | developer.ebay.com → User Tokens. The **RuName string, not a URL**. |
 
 ```bash
-python3 ".../credentials.py" set ebay_client_id "<value>"
+security add-generic-password -U -s ebay-client-id -a "$USER" -w
+security add-generic-password -U -s ebay-client-secret -a "$USER" -w
+security add-generic-password -U -s ebay-redirect-uri -a "$USER" -w
 ```
+
+Then confirm presence without printing anything:
+
+```bash
+python3 ".../credentials.py" status
+```
+
+`credentials.py set <name> <value>` still exists for values the scripts obtain
+themselves (the refresh token from the OAuth exchange); it is not for
+operator-typed secrets. On non-macOS hosts (no Keychain) fall back to the
+chmod-600 `~/.ebay-lister.env` file, which the operator edits directly.
 
 ### 3. Confirm the R2 staging config
 

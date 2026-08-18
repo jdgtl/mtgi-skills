@@ -50,7 +50,13 @@ def pick_share(market: dict, ask: float, rules: dict = RULES) -> tuple[float, st
     if int(e.get("active_count") or 0) == 0:
         return rules["share_no_competitor"], "no exact-SKU active competitor"
     vs = e.get("volume_seller")
-    if vs and float(vs.get("price_allin", 0)) <= ask:
+    vs_price = None
+    if isinstance(vs, dict):
+        try:
+            vs_price = float(vs.get("price_allin")) if vs.get("price_allin") is not None else None
+        except (TypeError, ValueError):
+            vs_price = None
+    if vs_price is not None and vs_price > 0 and vs_price <= ask:
         return rules["share_volume_seller"], "volume seller at/below our ask"
     med = e.get("sold_median_allin")
     if med is not None and ask <= float(med) and int(e.get("watchers_max") or 0) <= 2:
@@ -288,16 +294,23 @@ def main(argv: list[str] | None = None) -> int:
     except brokerbin_api.BrokerBinError as e:
         print(f"BrokerBin unavailable: {e}", file=sys.stderr)
         bb = brokerbin_api.summarize({"data": []}, {"data": []}, {"data": []})
+        bb["unavailable"] = str(e)
         quota = None
     result = compute(market, draft, bb, label=a.label)
+    if bb.get("unavailable"):
+        result["flags"].insert(0, "BrokerBin UNAVAILABLE (%s) — BrokerBin cells are NOT real zeros; eBay side only" % bb["unavailable"][:80])
+        result["brokerbin_unavailable"] = True
     if a.json:
         print(json.dumps({**result, "quota": quota}, indent=2, default=str))
     else:
         print(render(result))
         print("brokerbin quota: %s" % ("%s/%s today" % (quota.get("count"), quota.get("limit")) if quota else "served from cache"))
     if a.apply:
-        apply(draft_path, result)
-        print(f"applied → {draft_path}")
+        if result.get("brokerbin_unavailable"):
+            print("not applied: BrokerBin was unavailable, so this verdict is one-sided. Re-run with BrokerBin up.", file=sys.stderr)
+        else:
+            apply(draft_path, result)
+            print(f"applied → {draft_path}")
     return 0
 
 
