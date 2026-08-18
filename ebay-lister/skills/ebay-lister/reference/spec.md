@@ -53,6 +53,9 @@ then `publish` it.
 | `aspects` | no | `{name: value}` or `{name: [values]}`. Every *required* aspect for the category must be present or publish fails. |
 | `imageUrls` | yes | HTTPS only, ordered. From `r2_upload.py stage`. First is the gallery image. |
 | `packageWeightAndSize` | no | eBay shape, passed through: `{"weight": {"value": 2, "unit": "POUND"}, "dimensions": {"length": 8, "width": 6, "height": 4, "unit": "INCH"}}`. Pre-fills label purchase; required for calculated-cost services. |
+| `unit_cost` | no | MTGI landed cost per unit (number). When present the channel check also reports margin. |
+| `eol_date` | no | `YYYY-MM-DD` — vendor end-of-support or marketplace cutoff. Clips the channel-check horizon and lowers salvage. |
+| `channel` | no | Written by `channel_check.py --apply`: `{verdict, checked_at, horizon_months, net{ebay,brokerbin,combo}, rationale, assumptions}`. Advice; publish does not read it. |
 | `merchantLocationKey` | yes | From `ebay_api.py locations`. |
 | `fulfillmentPolicyId` | yes | From `ebay_api.py policies`. |
 | `paymentPolicyId` | yes | Same. |
