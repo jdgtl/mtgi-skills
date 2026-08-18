@@ -114,6 +114,18 @@ CREDENTIAL_SCHEMA: dict[str, dict[str, str]] = {
         "label": "Cloudflare account ID",
         "help": "Required when your Cloudflare login can reach more than one account — wrangler refuses to guess in non-interactive mode. Defaults to J/DGTL, which owns the mtgi bucket.",
     },
+    "brokerbin_api_token": {
+        "env": "BROKERBIN_API_KEY",
+        "keychain": "brokerbin-mtgi-api-token",
+        "label": "BrokerBin API token (Search API v2)",
+        "help": "Bearer token for https://search.brokerbin.com/api/v2. Registered in 05_System/credentials/REGISTRY.md. Optional — only the channel check uses it.",
+    },
+    "brokerbin_login": {
+        "env": "BROKERBIN_LOGIN",
+        "keychain": "brokerbin-mtgi-login",
+        "label": "BrokerBin acting-user login (optional)",
+        "help": "Sent as the `login` header so BrokerBin attributes calls to this user; falls back to the company primary user.",
+    },
 }
 
 # Values used when a credential is unset. These are configuration, not secrets.
