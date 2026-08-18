@@ -116,6 +116,12 @@ def build_inventory_item_payload(spec: dict) -> dict:
     # MPN strings are preserved verbatim -- exact case and hyphens.
     if spec.get("mpn"):
         product["mpn"] = spec["mpn"]
+    # Product identifiers. Some categories (e.g. 11175 Network Media Converters)
+    # refuse to publish without a UPC. eBay wants each as a list of strings.
+    for ident in ("upc", "ean", "isbn"):
+        if spec.get(ident):
+            v = spec[ident]
+            product[ident] = [str(x) for x in v] if isinstance(v, list) else [str(v)]
     if spec.get("imageUrls"):
         product["imageUrls"] = list(spec["imageUrls"])
     if spec.get("aspects"):

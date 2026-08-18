@@ -48,6 +48,7 @@ then `publish` it.
 | `categoryId` | yes | From `ebay_api.py suggest-category`. Never hardcode. |
 | `brand` | no | Fills `product.brand`. |
 | `mpn` | no | Fills `product.mpn`. **Verbatim.** |
+| `upc` / `ean` / `isbn` | no | Product identifier, string or list. Some categories refuse to publish without one (eBay error 25002 "The UPC field is missing") — read it off the retail box barcode. |
 | `aspects` | no | `{name: value}` or `{name: [values]}`. Every *required* aspect for the category must be present or publish fails. |
 | `imageUrls` | yes | HTTPS only, ordered. From `r2_upload.py stage`. First is the gallery image. |
 | `packageWeightAndSize` | no | eBay shape, passed through: `{"weight": {"value": 2, "unit": "POUND"}, "dimensions": {"length": 8, "width": 6, "height": 4, "unit": "INCH"}}`. Pre-fills label purchase; required for calculated-cost services. |
