@@ -79,9 +79,13 @@ Inputs: `Q` on hand; eBay pace `p_e = sold_units / window_months × share`;
 eBay net/unit `n_e = ask − FVF×ask − label`; BrokerBin `ask_med` (median priced
 ask, condition-matched, other sellers only), `rfq90`, `supply_qty`.
 
-- **share**: 0.30 if a volume seller sits at/below our price; 0.50 if we are
-  at the clearing price and actives have ≤2 watchers; 0.70 if no exact-SKU
-  active competitor. The fired rule is printed.
+- **share**, first rule that fires wins: 0.70 if `active_count = 0` (no
+  exact-SKU competitor); 0.30 if a volume seller sits at/below our ask;
+  0.50 if our ask ≤ `sold_median_allin` and `watchers_max ≤ 2`; else 0.40.
+  The fired rule is printed.
+- **No BrokerBin asks** (`ask_med` undefined): BrokerBin-only and the combo
+  remainder are shown as `n/a`, salvage falls back to 0.25 × `n_e`, and the
+  flag "no BrokerBin asks for this MPN" prints; verdict is then eBay-only.
 - **BrokerBin realized price**: `n_b_single = ask_med × 0.65`,
   `n_b_lot = ask_med × 0.55`; no fees. **Pace** `p_b = rfq90 / 3 × 0.25`
   units/month; 0 if `rfq90 = 0`.
