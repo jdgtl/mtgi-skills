@@ -178,3 +178,123 @@ def compute(market: dict, draft: dict, bb: dict, rules: dict = RULES,
                         "fvf": rules["fvf"], "label": label},
         "brokerbin": bb,
     }
+
+
+# ── rendering / IO ──────────────────────────────────────────────────────────
+def _money(v) -> str:
+    return "   n/a" if v is None else "$%6.0f" % v
+
+
+def render(r: dict) -> str:
+    e = r["brokerbin"]
+    s = r["scenarios"]
+    lines = []
+    lines.append("CHANNEL CHECK — %s (%d units, ask $%.2f)   share %.0f%% (rule: %s)" %
+                 (r["mpn"], r["qty"], r["ask"], r["share"] * 100, r["share_rule"]))
+    lines.append("eBay      net/unit $%.2f · pace %.2f/mo · label $%.0f · fvf %.0f%%" %
+                 (r["n_e"], r["p_e"], r["label"], r["assumptions"]["fvf"] * 100))
+    ours = e.get("ours")
+    lines.append("BrokerBin %d sellers · med ask %s · qty %d · RFQ/90d %d · searches/90d %s · Micro Technologies: %s" %
+                 (e.get("sellers", 0), "n/a" if e.get("ask_med") is None else "$%.0f" % e["ask_med"],
+                  e.get("qty_total", 0), e.get("rfq90", 0), e.get("searches_90d", "n/a"),
+                  "not listed" if not ours else "$%.0f × %d" % (ours["price"], ours["qty"])))
+    lines.append("                       3 mo net     6 mo net     unbounded")
+    ub = s["ebay"]["unbounded"]
+    lines.append("  eBay only          %s      %s      %d in %s mo → %s" %
+                 (_money(s["ebay"]["3"]), _money(s["ebay"]["6"]), r["qty"],
+                  "∞" if ub["months"] is None else ub["months"], _money(ub["net"])))
+    ub = s["brokerbin"]["unbounded"]
+    lines.append("  BrokerBin only     %s      %s      %s" %
+                 (_money(s["brokerbin"]["3"]), _money(s["brokerbin"]["6"]),
+                  "n/a" if ub["net"] is None else "%d in %s mo → %s" % (
+                      r["qty"], "∞" if ub["months"] is None else ub["months"], _money(ub["net"]))))
+    if s["brokerbin"].get("lot"):
+        lines.append("    lot of %-3d        %s (weight %.1f, ≤60 d)" %
+                     (r["qty"], _money(s["brokerbin"]["lot"]["net"]), s["brokerbin"]["lot"]["weight"]))
+    lines.append("  Combo              %s      %s      —" % (_money(s["combo"]["3"]), _money(s["combo"]["6"])))
+    lines.append("VERDICT %s — %s" % (r["verdict"], r["rationale"]))
+    if r["flags"]:
+        lines.append("flags: " + "; ".join(r["flags"]))
+    a = r["assumptions"]
+    lines.append("assumptions: share %.2f · rfq conv %.2f · bb haircut %.2f/%.2f · fvf %.2f · label $%.0f" %
+                 (a["share"], a["rfq_conversion"], a["bb_single_haircut"], a["bb_lot_haircut"], a["fvf"], a["label"]))
+    return "\n".join(lines)
+
+
+def load_inputs(target: str, market_dir: Path, drafts_dir: Path) -> tuple[dict, dict, Path]:
+    draft_path = drafts_dir / f"{target}.json"
+    if not draft_path.exists():
+        for p in sorted(drafts_dir.glob("*.json")):
+            try:
+                d = json.loads(p.read_text())
+            except json.JSONDecodeError:
+                continue
+            if d.get("mpn") == target:
+                draft_path = p
+                break
+    if not draft_path.exists():
+        raise FileNotFoundError(f"No draft for {target} in {drafts_dir}")
+    draft = json.loads(draft_path.read_text())
+    mpn = draft.get("mpn") or target
+    market_path = market_dir / f"{mpn}.json"
+    if not market_path.exists():
+        raise FileNotFoundError(
+            f"No eBay market file at {market_dir.name}/{mpn}.json — ask the operator for the Product Research "
+            f"Sold + Active screenshots, filter to the exact SKU, and write it (see reference/market-json.md).")
+    return json.loads(market_path.read_text()), draft, draft_path
+
+
+def apply(draft_path: Path, result: dict, today: date | None = None) -> None:
+    today = today or date.today()
+    d = json.loads(draft_path.read_text())
+    s = result["scenarios"]
+    d["channel"] = {
+        "verdict": result["verdict"],
+        "checked_at": today.isoformat(),
+        "horizon_months": 6,
+        "net": {"ebay": s["ebay"]["6"], "brokerbin": s["brokerbin"]["6"], "combo": s["combo"]["6"]},
+        "rationale": result["rationale"],
+        "assumptions": result["assumptions"],
+    }
+    draft_path.write_text(json.dumps(d, indent=2, ensure_ascii=False) + "\n")
+
+
+def main(argv: list[str] | None = None) -> int:
+    p = argparse.ArgumentParser(description="eBay vs BrokerBin vs combo channel check (advice only)")
+    p.add_argument("target", help="draft SKU (MTGI-HD223) or MPN (HD223)")
+    p.add_argument("--apply", action="store_true", help="write the verdict into the draft JSON")
+    p.add_argument("--refresh", action="store_true", help="bypass the BrokerBin cache")
+    p.add_argument("--json", action="store_true", help="emit the full computation as JSON")
+    p.add_argument("--market-dir", default=str(DEFAULT_MARKET_DIR))
+    p.add_argument("--drafts-dir", default=str(DEFAULT_DRAFTS_DIR))
+    p.add_argument("--label", type=float, default=None, help="override the per-unit label cost")
+    a = p.parse_args(argv)
+    market_dir, drafts_dir = Path(a.market_dir).expanduser(), Path(a.drafts_dir).expanduser()
+    try:
+        market, draft, draft_path = load_inputs(a.target, market_dir, drafts_dir)
+    except FileNotFoundError as e:
+        print(str(e), file=sys.stderr)
+        return 0
+    try:
+        api = brokerbin_api.BrokerBinAPI.from_credentials(cache_path=market_dir / ".brokerbin-cache.json", refresh=a.refresh)
+        mpn = draft.get("mpn") or market["mpn"]
+        bb = brokerbin_api.summarize(api.search(mpn), api.rfq(mpn), api.supply_demand(mpn))
+        quota = api.last_quota
+    except brokerbin_api.BrokerBinError as e:
+        print(f"BrokerBin unavailable: {e}", file=sys.stderr)
+        bb = brokerbin_api.summarize({"data": []}, {"data": []}, {"data": []})
+        quota = None
+    result = compute(market, draft, bb, label=a.label)
+    if a.json:
+        print(json.dumps({**result, "quota": quota}, indent=2, default=str))
+    else:
+        print(render(result))
+        print("brokerbin quota: %s" % ("%s/%s today" % (quota.get("count"), quota.get("limit")) if quota else "served from cache"))
+    if a.apply:
+        apply(draft_path, result)
+        print(f"applied → {draft_path}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

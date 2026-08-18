@@ -79,3 +79,47 @@ def test_thin_data_flag():
     d = dict(DRAFT); d.pop("eol_date")
     r = cc.compute(m, d, BB, today=TODAY)
     assert any("thin eBay data" in f for f in r["flags"])
+
+
+def test_render_contains_verdict_and_table():
+    r = cc.compute(MARKET, DRAFT, BB, today=TODAY)
+    out = cc.render(r)
+    assert "CHANNEL CHECK — HD223" in out
+    assert "3 mo net" in out and "6 mo net" in out and "unbounded" in out
+    assert "VERDICT " + r["verdict"] in out
+    assert "assumptions" in out
+
+
+def test_apply_writes_channel_block_idempotently(tmp_path):
+    p = tmp_path / "MTGI-HD223.json"
+    p.write_text(json.dumps(DRAFT))
+    r = cc.compute(MARKET, DRAFT, BB, today=TODAY)
+    cc.apply(p, r, today=TODAY)
+    d1 = json.loads(p.read_text())
+    assert d1["channel"]["verdict"] == r["verdict"]
+    assert d1["channel"]["checked_at"] == "2026-08-18"
+    assert set(d1["channel"]["net"]) == {"ebay", "brokerbin", "combo"}
+    cc.apply(p, r, today=TODAY)
+    d2 = json.loads(p.read_text())
+    assert d1 == d2
+
+
+def test_main_resolves_by_mpn_and_exits_zero(tmp_path, capsys, monkeypatch):
+    monkeypatch.setenv("BROKERBIN_MOCK", "1")
+    (tmp_path / "market").mkdir(); (tmp_path / "drafts").mkdir()
+    (tmp_path / "market" / "HD223.json").write_text(json.dumps(MARKET))
+    (tmp_path / "drafts" / "MTGI-HD223.json").write_text(json.dumps(DRAFT))
+    rc = cc.main(["HD223", "--market-dir", str(tmp_path / "market"), "--drafts-dir", str(tmp_path / "drafts"),
+                  "--json"])
+    assert rc == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["mpn"] == "HD223" and out["verdict"] in ("ebay", "brokerbin", "combo")
+
+
+def test_main_missing_market_file_is_a_clear_message(tmp_path, capsys, monkeypatch):
+    monkeypatch.setenv("BROKERBIN_MOCK", "1")
+    (tmp_path / "market").mkdir(); (tmp_path / "drafts").mkdir()
+    (tmp_path / "drafts" / "MTGI-HD223.json").write_text(json.dumps(DRAFT))
+    rc = cc.main(["MTGI-HD223", "--market-dir", str(tmp_path / "market"), "--drafts-dir", str(tmp_path / "drafts")])
+    assert rc == 0
+    assert "market/HD223.json" in capsys.readouterr().err
