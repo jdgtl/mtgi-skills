@@ -80,6 +80,40 @@ Marketplace Insights API returns 403 for this app and public sold-search
 scraping is walled off. If the operator has not pulled Product Research for the
 part, say so and price conservatively rather than anchoring on active asks.
 
+### 1c. Marketplace check — eBay, BrokerBin, or both
+
+Before drafting, decide where the units should sell. This is scripted advice,
+not a gate.
+
+1. Ask the operator for two Seller Hub screenshots: Research → Product
+   Research → **Sold** and **Active** for the MPN, category **All Categories**,
+   window 3 years (slow enterprise gear) or 6 months (fast movers).
+2. **You filter, never the operator**: keep only exact-SKU rows, drop
+   variants/accessories/unrelated hits, unit-weight the counts, compute
+   all-in prices, and write `01_Clients/mtgi/work/ebay/market/<MPN>.json`
+   (schema and rules in `reference/market-json.md`). Show the exclusions in
+   one line so the operator can sanity-check.
+3. Run the check (BrokerBin is fetched live and cached; ~3 calls per MPN of a
+   50/day quota):
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/skills/ebay-lister/scripts/channel_check.py" <SKU-or-MPN>
+```
+
+4. Present the table as printed: eBay-only / BrokerBin-only / combo net at 3
+   and 6 months, the unbounded footnote, the verdict and its one-line
+   rationale, and the flags. Say which assumptions drove it
+   (`reference/channel-rules.md`).
+5. The operator decides. Record it with `--apply` (writes a `channel` block
+   into the draft). If the verdict is `brokerbin` or `combo`, tell the operator
+   what to change on MTGI's BrokerBin line (price/qty) — BrokerBin upload is
+   MTGI's existing file process, not this skill — and note that eBay sales
+   must be mirrored to BrokerBin qty.
+
+If `market/<MPN>.json` does not exist the script says so and exits cleanly;
+do not guess figures. If BrokerBin is unreachable it prints why and runs the
+eBay-only side.
+
 ### 2. Gather the listing facts
 
 Ask for whatever the operator hasn't already given. Required:

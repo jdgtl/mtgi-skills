@@ -80,6 +80,8 @@ time, not for the life of the listing.
 | `publish.py` | `validate` / `dry-run` / `publish` |
 | `auth.py` | OAuth: consent URL, code exchange, token refresh |
 | `credentials.py` | chmod-600 credential store, keyring fallback |
+| `brokerbin_api.py` | BrokerBin Search API v2: `search` / `rfq` / `supply` / `summary`, 60-day cache |
+| `channel_check.py` | eBay vs BrokerBin vs combo net at 3 & 6 months; `--apply` records the verdict on the draft |
 
 Each runs standalone with `--help`.
 
@@ -90,6 +92,15 @@ Each runs standalone with `--help`.
 - Stops if a staged image URL doesn't verify
 - Validates title length, condition, images, and policies before calling eBay
 - Appends every published listing to `~/.ebay-lister-listings.jsonl`
+
+## Channel check
+
+Not every SKU belongs on eBay. `channel_check.py` reads exact-SKU eBay sold
+and active figures (from Seller Hub Product Research, filtered by the skill)
+plus live BrokerBin asks and quote-request counts, and prints eBay-only /
+BrokerBin-only / combo net revenue at 3 and 6 months with a recommendation.
+Rules and constants: `skills/ebay-lister/reference/channel-rules.md`. Needs
+Keychain `brokerbin-mtgi-api-token` (optional `brokerbin-mtgi-login`).
 
 ## Credentials
 
